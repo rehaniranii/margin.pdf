@@ -1,0 +1,15 @@
+export type Rect = [number, number, number, number]
+export type SourceReference = { id: string; name: string; kind: 'sample' | 'local'; bytes: ArrayBuffer }
+export type PageReference = { sourceId: string; sourcePage: number; rotation: 0 | 90 | 180 | 270 }
+export type SampleTextEdit = { type: 'sample-text'; page: 0; replacement: string }
+export type WorkingDocument = { source: SourceReference; pages: PageReference[]; edits: TextEdit[]; revision: number }
+export type DocumentInfo = { pageCount: number; bounds: Rect; text: string }
+export type RenderedPage = { png: ArrayBuffer; width: number; height: number; bounds: Rect; rasterScale: number; pixelOrigin: Point }
+export type ProofReport = { originalRemoved: boolean; replacementExtractable: boolean; neighborsPreserved: boolean }
+export type Point = [number, number]
+export type Matrix = [number, number, number, number, number, number]
+export type ReplacementFont = 'Helvetica' | 'Times-Roman' | 'Courier'
+export type TextEdit = { type: 'replace-text'; page: number; regionId: string; text: string; font: ReplacementFont; size: number; color: string }
+export type TextRegion = { id: string; text: string; bounds: Rect; origin: Point; direction: Point; fontName: string; fontSize: number; color: string; unsupported?: string }
+export type PageText = { page: number; bounds: Rect; regions: TextRegion[]; message?: string }
+export type EditorView = { image: RenderedPage; text: PageText; edits: TextEdit[]; revision: number; canUndo: boolean; canRedo: boolean }

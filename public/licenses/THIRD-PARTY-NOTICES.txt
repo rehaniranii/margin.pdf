@@ -1,0 +1,23 @@
+margin.pdf dependency notices
+
+No license is assigned to the margin.pdf application by this notice.
+Distribution of the application remains pending the owner's licensing decision.
+
+MuPDF 1.28.1 — Artifex Software, Inc.
+AGPL-3.0-or-later; alternative commercial licensing available from Artifex.
+Applies to the bundled MuPDF JavaScript and WebAssembly engine.
+License: mupdf-LICENSE.txt
+Source: https://github.com/ArtifexSoftware/mupdf
+
+React / React DOM 19.3.1 and Scheduler (pinned in package-lock.json)
+Copyright Meta Platforms, Inc. and affiliates. MIT.
+Licenses: react-LICENSE.txt, react-dom-LICENSE.txt, scheduler-LICENSE.txt
+Source: https://github.com/facebook/react
+
+Vite and bundled runtime helpers
+MIT; its license file also includes upstream third-party notices.
+License: vite-LICENSE.txt
+Source: https://github.com/vitejs/vite
+
+See docs/ENGINE-DECISION.md in the source checkout for the distribution decision
+and development dependency review. A complete release audit remains outstanding.
