@@ -25,7 +25,7 @@ for distribution remains unresolved and no application license was assigned.
 
 ## Automated checks actually performed
 
-`npm test`: **30 tests pass**. Coverage includes:
+`npm test`: **31 tests pass**. Coverage includes:
 
 - Original selected content absent from rewritten decoded streams; replacement
   extraction and search; original source bytes unchanged.
@@ -52,7 +52,7 @@ not suppressed. Those guarded branches were not used in the browser.
 `npm run proof`: the retained Phase 1 standalone proof still passes and generates
 before/after PDFs, images, and JSON in output/proof/.
 
-`git diff --check`: passed. No commits were created.
+`git diff --check`: passed. No commits were created by the agent.
 
 ## Production Chromium checks actually performed
 
@@ -83,12 +83,20 @@ A separate testing tab preserved the already-open workspace containing sample ed
     localhost application assets and local Blob URLs only during these workflows;
     no document bytes, filenames, extracted text, or other payload was observed in
     a remote request. This is a focused run, not the complete Phase 5 privacy audit.
+11. Reloaded only the testing tab against the final production build, selected the
+    sample text, and entered `A fresh idea.`. Zoom preserved the draft; changing
+    pages was explicitly blocked until it was applied. Applying succeeded and the
+    final-build console remained free of errors/warnings.
 
 Local screenshots (ignored artifacts): output/playwright/phase2-desktop.png,
 phase2-rotated.png, phase2-unsupported.png, and phase2-mobile.png. An engine render
 of the browser download is output/phase2/browser-export.png. Generated test PDFs
 and browser downloads remain local under output/phase2/ and .playwright-cli/.
 Desktop, rotated, mobile, and exported-PDF images were visually inspected.
+The final-build mobile editor was also captured as a full-page image in
+output/playwright/phase2-mobile-editor.png and visually inspected after applying
+the sample change. The testing tab was closed afterward; the existing workspace
+tab was left open.
 
 The production preview is left available locally for review. No active working
 user tab was reloaded, cleared, or closed by the tests.
@@ -99,6 +107,9 @@ user tab was reloaded, cleared, or closed by the tests.
   clip as unsupported incorrectly blocked valid text. The engine now verifies that
   the entire glyph lies inside an axis-aligned rectangular clip; partial/unusual
   clips remain unsupported. Crop/rotation and clipped-text regression fixtures pass.
+- Source span bounds and new replacement ink must both respect the original clip
+  boundaries and graphic obstacles. A regression fixture covers glyph ink that is
+  visible but whose typographic span crosses a clip; it remains view-only.
 - StructuredText's preserve-spans setting separates mixed styles. The implementation
   treats these as independent spans instead of pretending to replace a whole mixed
   line with a single style.

@@ -106,6 +106,7 @@ for (const [name, content] of [
   ['skewed', 'BT /F 20 Tf 1 0.2 0 1 80 360 Tm (Skewed line) Tj ET'],
   ['vertical source', 'BT /F 20 Tf 0 1 -1 0 80 100 Tm (Vertical line) Tj ET'],
   ['clipped', 'q 80 350 100 40 re W n BT /F 20 Tf 1 0 0 1 80 360 Tm (Clipped line) Tj ET Q'],
+  ['typographic area crossing a clip', 'q 70 350 250 28 re W n BT /F 20 Tf 1 0 0 1 80 360 Tm (Original editable line) Tj ET Q'],
   ['invisible', 'BT /F 20 Tf 3 Tr 1 0 0 1 80 360 Tm (Hidden line) Tj ET'],
 ] as const) test(`${name} content cannot be silently replaced`, () => {
   const source = fixture({ content })

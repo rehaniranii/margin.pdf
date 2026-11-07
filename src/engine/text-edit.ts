@@ -2,7 +2,7 @@ import * as mupdf from 'mupdf'
 import type { Rect, TextEdit } from '../model/document'
 import { contains, intersects, union } from '../geometry/affine'
 import { openPdf } from './mupdf-adapter'
-import { analyzePage, assertGlyphs, basicLatin, paintedGlyphs } from './text-analysis'
+import { analyzePage, assertGlyphs, basicLatin, paintedGlyphs, safeBackdrop } from './text-analysis'
 import type { Analysis, AnalyzedRegion, Glyph } from './text-analysis'
 
 export const REPLACEMENT_FONTS = ['Helvetica', 'Times-Roman', 'Courier'] as const
@@ -32,6 +32,11 @@ export function prepareEdit(analysis: Analysis, edit: TextEdit, fontKey = 'F'): 
     if (width > capacity + 0.05 || (edit.text && !contains(region.bounds, ink, 1))) throw new Error(`The replacement does not fit the original line’s width or height. Shorten it or reduce the font size. The layout has not changed.`)
     if (!contains(analysis.view.bounds, ink)) throw new Error('The replacement would extend beyond the visible page. Reduce its size.')
     const selected = new Set(region.glyphIndices)
+    const selectedGlyphs = region.glyphIndices.map(index => analysis.glyphs[index])
+    if (selectedGlyphs.some(glyph => glyph.clips.some(clip => !contains(clip, ink)))) throw new Error('The replacement would cross the original clipping boundary. Reduce its size.')
+    const textOrder = selectedGlyphs.reduce((order, glyph) => Math.min(order, glyph.order), Infinity)
+    const footprint = union(ink, region.bounds)
+    if (analysis.graphics.some(graphic => intersects(graphic.bounds, footprint) && !safeBackdrop(graphic, footprint, textOrder))) throw new Error('The replacement would touch a neighboring graphic. Reduce its size or use a shorter line.')
     if (analysis.glyphs.some((glyph, index) => !selected.has(index) && intersects(union(ink, region.bounds), glyph.bounds))) throw new Error('The replacement would touch neighboring text. Reduce its size or use a shorter line.')
     const glyphs: Pick<Glyph, 'unicode' | 'origin'>[] = []
     text.walk({ showGlyph(_font, matrix, _glyph, unicode) { glyphs.push({ unicode, origin: [matrix[4], matrix[5]] }) } })

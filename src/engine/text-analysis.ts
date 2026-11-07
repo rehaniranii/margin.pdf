@@ -2,12 +2,14 @@ import * as mupdf from 'mupdf'
 import type { Matrix, PageText, Point, Rect, TextRegion } from '../model/document'
 import { contains, intersects, quadBounds, samePoint } from '../geometry/affine'
 
-export type Glyph = { unicode: number; origin: Point; bounds: Rect; matrix: Matrix; font: string; safe: boolean; order: number }
+export type Glyph = { unicode: number; origin: Point; bounds: Rect; matrix: Matrix; font: string; safe: boolean; order: number; clips: Rect[] }
+export type Graphic = { bounds: Rect; order: number; background: boolean }
 export type AnalyzedRegion = TextRegion & { glyphIndices: number[] }
-export type Analysis = { view: PageText; regions: AnalyzedRegion[]; glyphs: Glyph[]; pdfToPage: Matrix }
+export type Analysis = { view: PageText; regions: AnalyzedRegion[]; glyphs: Glyph[]; pdfToPage: Matrix; graphics: Graphic[] }
 const near = (a: number, b: number) => Math.abs(a - b) < 0.02
 export const basicLatin = (value: string) => /^[\x20-\x7e]*$/.test(value)
 export const rgbHex = (color: number[]) => '#' + (color.length === 1 ? [color[0], color[0], color[0]] : color.slice(0, 3)).map(n => Math.round(Math.max(0, Math.min(1, n)) * 255).toString(16).padStart(2, '0')).join('')
+export const safeBackdrop = (graphic: Graphic, bounds: Rect, textOrder: number) => graphic.background && graphic.order < textOrder && contains(graphic.bounds, bounds, -0.1)
 
 // Device callbacks give the painted glyphs, independently of the structured-text
 // grouping. Their wrappers are retained by MuPDF; release callback arguments we own.
@@ -21,6 +23,7 @@ export function paintedGlyphs(page: mupdf.PDFPage): { glyphs: Glyph[]; reason?: 
   const device = new mupdf.Device({
     fillText(text, ctm, space, _color, alpha) {
       const paintOrder = order++
+      const activeClips = clips.filter((clip): clip is Rect => clip !== null)
       try {
         text.walk({ showGlyph(font, trm, glyph, unicode, wmode, bidi) {
           const matrix = mupdf.Matrix.concat(trm, ctm)
@@ -28,7 +31,7 @@ export function paintedGlyphs(page: mupdf.PDFPage): { glyphs: Glyph[]; reason?: 
           try {
             if (glyph >= 0) single.showGlyph(font, matrix, glyph, unicode, wmode)
             const bounds = glyph < 0 ? [matrix[4], matrix[5], matrix[4], matrix[5]] as Rect : single.getBounds(null as unknown as mupdf.StrokeState, mupdf.Matrix.identity)
-            glyphs.push({ unicode, origin: [matrix[4], matrix[5]], bounds, matrix, font: font.getName(), safe: alpha === 1 && wmode === 0 && bidi === 0 && glyph >= 0 && unicode >= 32 && unicode <= 126 && clips.every(clip => clip && contains(clip, bounds)), order: paintOrder })
+            glyphs.push({ unicode, origin: [matrix[4], matrix[5]], bounds, matrix, font: font.getName(), safe: alpha === 1 && wmode === 0 && bidi === 0 && glyph >= 0 && unicode >= 32 && unicode <= 126 && clips.every(clip => clip && contains(clip, bounds)), order: paintOrder, clips: activeClips })
           } finally { single.destroy() }
           // Text.walk supplies a shared cached font wrapper. Do not destroy it.
         } })
@@ -116,6 +119,7 @@ export function analyzePage(doc: mupdf.PDFDocument, index: number): Analysis {
             else {
               const id = matches[0]; const glyph = paint.glyphs[id]
               current.glyphIndices.push(id)
+              if (glyph.clips.some(clip => !contains(clip, current!.bounds))) current.unsupported ??= 'This text area crosses a clipping boundary. It is view-only.'
               const raw = mupdf.Matrix.concat(glyph.matrix, inverse)
               if (!glyph.safe || !near(raw[1], 0) || !near(raw[2], 0) || raw[0] <= 0 || raw[3] <= 0 || !near(raw[0], raw[3])) current.unsupported ??= 'This line uses an unsupported appearance or transformation. Only simple horizontal source text can be edited.'
               // The quad must agree with the source baseline; reject skew or stretching.
@@ -138,12 +142,12 @@ export function analyzePage(doc: mupdf.PDFDocument, index: number): Analysis {
       if (annotationBounds.some(rect => intersects(rect, region.bounds))) region.unsupported ??= 'A link, annotation, or form overlaps this line. It is view-only.'
       const firstOrder = region.glyphIndices.reduce((order, i) => Math.min(order, paint.glyphs[i].order), Infinity)
       for (const obstacle of paint.obstacles) if (intersects(obstacle.bounds, region.bounds)) {
-        const backdrop = obstacle.background && obstacle.order < firstOrder && contains(obstacle.bounds, region.bounds, -0.1)
+        const backdrop = safeBackdrop(obstacle, region.bounds, firstOrder)
         if (!backdrop) region.unsupported ??= 'An image or graphic intersects this line. It is view-only to preserve overlapping content.'
       }
       if (!region.glyphIndices.length) region.unsupported ??= 'No editable glyphs were found in this line.'
     }
-    return { view: { page: index, bounds, regions: regions.map(({ glyphIndices: _, ...region }) => region), message: !regions.length ? 'No editable text was found. This may be a scanned page; OCR is outside this release.' : pageReason }, regions, glyphs: paint.glyphs, pdfToPage }
+    return { view: { page: index, bounds, regions: regions.map(({ glyphIndices: _, ...region }) => region), message: !regions.length ? 'No editable text was found. This may be a scanned page; OCR is outside this release.' : pageReason }, regions, glyphs: paint.glyphs, pdfToPage, graphics: paint.obstacles }
   } finally { page.destroy() }
 }
 
