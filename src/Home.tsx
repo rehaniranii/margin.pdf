@@ -1,9 +1,6 @@
-import { useState } from 'react'
 import type { CSSProperties } from 'react'
-import { DropZone } from './components/DropZone'
 import { Icon, SiteFooter, SiteHeader } from './components/SiteHeader'
-import { handOff } from './handoff'
-import { categories, toolHref, tools, type Tool } from './tools'
+import { categories, toolHref, tools } from './tools'
 import './site.css'
 
 const notes = [
@@ -14,11 +11,6 @@ const notes = [
 const delay = (ms: number) => ({ '--d': `${ms}ms` }) as CSSProperties
 
 export default function Home() {
-  const [file, setFile] = useState<File>()
-  const isImage = !!file && file.type.startsWith('image/')
-  const choices = tools.filter(tool => tool.accepts === (isImage ? 'image' : 'pdf'))
-  function choose(tool: Tool) { if (file) handOff(file); location.hash = toolHref(tool) }
-
   return <div className="site home">
     <SiteHeader/>
     <main>
@@ -30,13 +22,19 @@ export default function Home() {
           <div className="hero-actions rise" style={delay(240)}><a className="cta" href="#/edit">Open the editor <span aria-hidden="true">→</span></a><a className="ghost" href="#/#tools">Browse tools</a></div>
         </div>
 
-        <div className="sheet rise" style={delay(200)}>
-          {!file ? <DropZone label="Drop a PDF or images" hint="We’ll show what you can do with it. Nothing leaves this tab." accept="application/pdf,.pdf,image/png,image/jpeg,.png,.jpg,.jpeg" onFiles={files => setFile(files[0])}/>
-            : <div className="chooser" aria-live="polite">
-              <p className="chooser-file"><strong title={file.name}>{file.name}</strong><button className="link" onClick={() => setFile(undefined)}>Choose another</button></p>
-              <p className="chooser-ask">What would you like to do?</p>
-              <ul>{choices.map((tool, i) => <li key={tool.id} style={delay(i * 35)}><button onClick={() => choose(tool)}><span className="tool-icon"><Icon d={tool.icon}/></span>{tool.name}<span className="go" aria-hidden="true">→</span></button></li>)}</ul>
-            </div>}
+        <div className="sheet rise" style={delay(200)} aria-hidden="true">
+          <div className="note">
+            <p className="note-title">Project update</p>
+            <p>Revenue grew <span className="swap"><span className="old">14%</span><span className="new">18%</span></span> this quarter.</p>
+            <p>Costs stayed flat and <span className="mark">tickets fell</span>.</p>
+            <p className="faint">Next: offline mode, accessibility.</p>
+            <p/>
+            <p>Contact: <span className="redact">jane.doe@example.com</span></p>
+            <p>Signed, <svg className="signature" viewBox="0 0 150 44"><path pathLength={1} d="M4 34c6-14 12-26 16-26s-2 22-8 30c-4 5-9 2-6-4 4-8 14-6 18-2M30 24c4-6 9-6 8 0s-3 10 1 8 7-10 10-12-1 12 3 12 6-12 9-14c2 6 0 12 4 12s7-8 10-12M80 22c-6 0-9 12-3 12s8-14 10-20c-2 10-4 20 2 20s10-14 14-16c-6 2-6 14 0 14s9-8 12-12M108 36c12-3 24-5 38-6"/></svg></p>
+            <p/>
+            <p className="note-foot">Page 1 of 3</p>
+          </div>
+          <span className="note-chip">Edited on this device</span>
         </div>
       </section>
 

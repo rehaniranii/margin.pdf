@@ -28,18 +28,6 @@
   background-image:linear-gradient(var(--margin-soft),var(--margin-soft)),repeating-linear-gradient(transparent 0 31px,var(--rule) 31px 32px);background-size:1.5px 100%,100% 100%;background-position:52px 0,0 18px;background-repeat:no-repeat,repeat}
 .sheet::before{content:"";position:absolute;left:51px;top:0;bottom:0;width:1.5px;background:var(--margin);transform-origin:top;animation:rule 1s .5s cubic-bezier(.6,0,.2,1) both}
 .sheet::after{content:"";position:absolute;inset:auto 14px -10px 14px;height:10px;background:var(--surface-2);border:1px solid var(--line);border-top:0;border-radius:0 0 4px 4px;z-index:-1}
-.sheet .drop-zone{position:absolute;inset:0;border:0;background:transparent;padding-left:76px}
-.sheet .drop-zone.over{background:color-mix(in srgb,var(--accent) 6%,transparent)}
-.sheet:has(.drop-zone.over){transform:rotate(-1deg) translateY(-4px);box-shadow:0 1px 0 var(--line),0 30px 60px -24px var(--shadow)}
-.chooser{padding:28px 28px 28px 76px}
-.chooser-file{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:0 0 4px}
-.chooser-file strong{font-family:var(--serif);font-size:20px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
-.chooser-ask{color:var(--muted);font-size:14px;margin:0 0 14px}
-.chooser ul{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:4px 10px}
-.chooser li{animation:rise .4s cubic-bezier(.2,.7,.2,1) both;animation-delay:var(--d)}
-.chooser button{width:100%;display:flex;align-items:center;gap:10px;text-align:left;background:transparent;border:0;border-radius:6px;padding:7px 8px;font-size:14px;font-weight:600;color:var(--ink)}
-.chooser button:hover:not(:disabled){background:var(--surface-3)}
-.chooser .tool-icon{width:30px;height:30px;border-radius:7px}.chooser .tool-icon svg{width:16px;height:16px}
 
 .go{margin-left:auto;color:var(--faint);transition:transform .2s,color .2s}
 a:hover>.go,button:hover>.go{transform:translateX(3px);color:var(--accent)}
@@ -103,8 +91,8 @@ a:hover .tool-icon path,button:hover .tool-icon path{animation:draw .6s ease bot
 @keyframes rule{from{transform:scaleY(0)}to{transform:scaleY(1)}}
 @keyframes draw{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
 
-@media(max-width:880px){.hero{grid-template-columns:1fr}.sheet{min-height:280px}.index-grid,.fine-print ol{grid-template-columns:1fr}.section-head{grid-template-columns:1fr}.section-head p{justify-self:start}.site-header nav>a:not(.cta){display:none}.chooser ul{grid-template-columns:1fr}}
-@media(max-width:520px){.sheet::before{left:31px}.sheet{background-position:32px 0,0 18px}.sheet .drop-zone,.chooser{padding-left:48px}.leader{display:none}.tool-title{align-items:flex-start}}
+@media(max-width:880px){.hero{grid-template-columns:1fr}.sheet{min-height:340px}.index-grid,.fine-print ol{grid-template-columns:1fr}.section-head{grid-template-columns:1fr}.section-head p{justify-self:start}.site-header nav>a:not(.cta){display:none}}
+@media(max-width:520px){.sheet::before{left:31px}.sheet{background-position:32px 0,0 18px}.leader{display:none}.tool-title{align-items:flex-start}}
 @media(prefers-reduced-motion:reduce){.site *,.site *::before,.site *::after{animation:none!important;transition:none!important}}
 /* The dialog's compact type is too small once the tool is the whole page. */
 .utility-page .utility-fields{font-size:14px;gap:18px}
@@ -115,3 +103,36 @@ a:hover .tool-icon path,button:hover .tool-icon path{animation:draw .6s ease bot
 .utility-page .utility-source-list small{font-size:12px}
 .utility-page .primary{padding:12px 18px;font-size:14px}
 .utility-page .utility-result p{font-size:13.5px}
+/* Hero sheet: a short note on the ruled lines. Each line is a 32px row (the rule pitch)
+   trimmed to its baseline with text-box, so letters sit exactly on the rule whatever the font.
+   One figure is re-typed in a smooth 7s loop; reduced motion shows the finished note. */
+.note{position:absolute;inset:0;overflow:hidden;isolation:isolate;display:grid;grid-auto-rows:32px;align-content:start;padding:17px 24px 0 76px;font-family:var(--serif);font-size:19px;color:var(--ink)}
+.note p{align-self:end;margin:0;line-height:1;white-space:nowrap;text-box:trim-both cap alphabetic}
+@supports not (text-box:trim-both cap alphabetic){.note p{transform:translateY(.21em)}}
+.note .note-title{font-weight:700;font-size:21px}
+.note .faint{color:var(--muted)}
+.swap{position:relative;display:inline-grid;vertical-align:baseline}
+.swap>span{grid-area:1/1;padding:0 3px;margin:0 -3px;border-radius:3px;will-change:opacity,clip-path}
+/* One 9s loop: edit (1.5–4s), highlight (4.3s), redact (5s), signature (5.8s), tag (7s), then fade back. */
+.swap .old{opacity:0;animation:swap-old 9s cubic-bezier(.4,0,.2,1) infinite}
+.swap .new{color:var(--accent);animation:swap-new 9s cubic-bezier(.4,0,.2,1) infinite}
+.swap::after{content:"";position:absolute;top:-2px;bottom:-3px;left:0;width:1.5px;border-radius:1px;background:var(--accent);opacity:0;animation:swap-caret 9s cubic-bezier(.4,0,.2,1) infinite}
+@keyframes swap-old{0%,17%{opacity:1;background-color:transparent}23%,31%{opacity:1;background-color:var(--accent-tint)}36%,90%{opacity:0;background-color:var(--accent-tint)}96%,100%{opacity:1;background-color:transparent}}
+@keyframes swap-new{0%,33%{opacity:1;clip-path:inset(-4px 100% -4px 0)}44%,88%{opacity:1;clip-path:inset(-4px 0 -4px 0)}93%,100%{opacity:0;clip-path:inset(-4px 0 -4px 0)}}
+@keyframes swap-caret{0%,31%{opacity:0;left:0}33%{opacity:1;left:0}44%{opacity:1;left:100%}50%,100%{opacity:0;left:100%}}
+.mark{position:relative;--hl:#f5d55c8c}
+[data-theme=dark] .mark{--hl:#d9b84a59}
+.mark::before{content:"";position:absolute;z-index:-1;left:-2px;right:-2px;bottom:-4px;height:68%;background:var(--hl);border-radius:2px;transform-origin:left;transform:scaleX(0);animation:mark 9s cubic-bezier(.4,0,.2,1) infinite}
+@keyframes mark{0%,48%{transform:scaleX(0);opacity:1}54%,88%{transform:scaleX(1);opacity:1}93%,100%{transform:scaleX(1);opacity:0}}
+.redact{position:relative}
+.redact::after{content:"";position:absolute;inset:-4px -3px -5px;background:var(--ink);border-radius:1px;transform-origin:left;animation:redact 9s cubic-bezier(.4,0,.2,1) infinite}
+[data-theme=dark] .redact::after{background:#050608;box-shadow:inset 0 0 0 1px var(--line-strong)}
+@keyframes redact{0%,56%{transform:scaleX(0);opacity:1}62%,88%{transform:scaleX(1);opacity:1}93%,100%{transform:scaleX(1);opacity:0}}
+.signature{width:118px;height:36px;vertical-align:-10px;margin-left:4px;overflow:visible}
+.signature path{fill:none;stroke:var(--accent);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:1;animation:sign 9s cubic-bezier(.45,.05,.35,1) infinite}
+@keyframes sign{0%,64%{stroke-dashoffset:1;opacity:1}78%,88%{stroke-dashoffset:0;opacity:1}93%,100%{stroke-dashoffset:0;opacity:0}}
+.note .note-foot{justify-self:end;font-family:var(--sans);font-size:12px;color:var(--faint);letter-spacing:.02em}
+.note-chip{position:absolute;right:16px;top:14px;font-size:12px;font-weight:600;color:var(--ok);background:var(--ok-tint);border:1px solid var(--ok-line);padding:5px 10px;border-radius:99px;opacity:0;will-change:opacity,transform;animation:chip 9s cubic-bezier(.4,0,.2,1) infinite}
+@keyframes chip{0%,78%{opacity:0;transform:translateY(-6px)}82%,88%{opacity:1;transform:none}93%,100%{opacity:0;transform:translateY(-6px)}}
+@media(max-width:520px){.note{padding-left:46px;font-size:16px}.note .note-title{font-size:18px}}
+@media(prefers-reduced-motion:reduce){.swap .old{opacity:0}.swap .new{clip-path:none}.note-chip{opacity:1}.signature path{stroke-dashoffset:0}.mark::before{transform:none}}
