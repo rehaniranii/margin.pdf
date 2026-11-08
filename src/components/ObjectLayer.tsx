@@ -5,17 +5,18 @@ import { boxBetween, boxRect, clampBox, pointerToPage, resizeBox } from '../geom
 import type { Corner } from '../geometry/objects'
 import { regionStyle } from '../geometry/page'
 
-type Props = { image: RenderedPage; tool: EditorTool; objects: AddedObject[]; selected?: string; busy: boolean; dirty: boolean; strokeWidth: number; onSelect: (id?: string) => void; onPut: (object: AddedObject) => void; onCreate: (tool: EditorTool, box: ObjectBox, points: Point[]) => void }
+type Props = { image: RenderedPage; tool: EditorTool; objects: AddedObject[]; selected?: string; busy: boolean; dirty: boolean; strokeWidth: number; onSelect: (id?: string) => void; onEditText?: (object: AddedObject) => void; onPut: (object: AddedObject) => void; onCreate: (tool: EditorTool, box: ObjectBox, points: Point[]) => void }
 type Gesture = { pointer: number; start: Point; client: Point; mode: 'create' | 'move' | 'resize' | 'pan'; object?: AddedObject; corner?: Corner; box: ObjectBox; points: Point[]; scroll?: { element: HTMLElement; left: number; top: number } }
 const names = { nw: 'top left', ne: 'top right', sw: 'bottom left', se: 'bottom right' }
 
-export function ObjectLayer({ image, tool, objects, selected, busy, dirty, strokeWidth, onSelect, onPut, onCreate }: Props) {
+export function ObjectLayer({ image, tool, objects, selected, busy, dirty, strokeWidth, onSelect, onEditText, onPut, onCreate }: Props) {
   const layer = useRef<HTMLDivElement>(null)
   const gesture = useRef<Gesture | null>(null)
+  const lastTap = useRef<{ id: string; time: number; client: Point } | undefined>(undefined)
   const [ghost, setGhost] = useState<Gesture | null>(null)
   const [interactionError, setInteractionError] = useState('')
   function cancel() { const g = gesture.current; if (g && layer.current?.hasPointerCapture(g.pointer)) layer.current.releasePointerCapture(g.pointer); gesture.current = null; setGhost(null) }
-  useEffect(() => { cancel() }, [tool, image, busy])
+  useEffect(() => { cancel(); lastTap.current = undefined }, [tool, image, busy])
   useEffect(() => { const listener = (event: KeyboardEvent) => { if (event.key === 'Escape') cancel() }; window.addEventListener('keydown', listener); return () => window.removeEventListener('keydown', listener) }, [])
   const local = (event: ReactPointerEvent): Point => {
     const point = pointerToPage([event.clientX,event.clientY], layer.current!.getBoundingClientRect(), image)
@@ -56,7 +57,18 @@ export function ObjectLayer({ image, tool, objects, selected, busy, dirty, strok
     if (!g || g.pointer !== event.pointerId) return
     move(event); cancel()
     if (g.mode === 'pan') return
-    if (g.object) { if (JSON.stringify(g.box) !== JSON.stringify(g.object.box)) onPut({ ...g.object,box:g.box }); return }
+    if (g.object) {
+      if (JSON.stringify(g.box) !== JSON.stringify(g.object.box)) { lastTap.current = undefined; onPut({ ...g.object,box:g.box }) }
+      else if (g.object.kind === 'text' && g.mode === 'move') {
+        // Pointer capture retargets native click/dblclick to the layer. Recognize
+        // stationary double taps here while retaining reliable captured dragging.
+        const previous = lastTap.current
+        if (previous?.id === g.object.id && event.timeStamp - previous.time < 500 && Math.hypot(event.clientX-previous.client[0],event.clientY-previous.client[1]) < 8) {
+          lastTap.current = undefined; onEditText?.(g.object)
+        } else lastTap.current = { id:g.object.id,time:event.timeStamp,client:[event.clientX,event.clientY] }
+      }
+      return
+    }
     const moved = g.box.width > 2 || g.box.height > 2
     const sizes = tool === 'text' ? [200,60] : tool === 'highlight' ? [120,24] : [120,70]
     const box = moved ? { ...g.box,width:Math.max(2,g.box.width),height:Math.max(2,g.box.height) } : clampBox({ x:g.start[0],y:g.start[1],width:sizes[0],height:sizes[1] },image.bounds)
@@ -65,7 +77,7 @@ export function ObjectLayer({ image, tool, objects, selected, busy, dirty, strok
   const origin = image.pixelOrigin.map(p => p / image.rasterScale)
   return <div ref={layer} className={`object-layer tool-${tool} ${busy ? 'object-layer-busy' : ''}`} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={cancel}>
     {tool === 'select' && objects.map(object => <div key={object.id} className={`object-hit ${object.id === selected ? 'object-selected' : ''}`} style={regionStyle(boxRect(object.box),image)}>
-      <button data-object-id={object.id} className="object-body" aria-label={`Select added ${object.kind === 'ink' && object.purpose === 'visual-signature' ? 'visual signature' : object.kind}`} aria-pressed={object.id === selected} disabled={busy} onClick={() => onSelect(object.id)} onFocus={() => { if (!dirty) onSelect(object.id) }}/>
+      <button data-object-id={object.id} className="object-body" aria-label={`Select added ${object.kind === 'ink' && object.purpose === 'visual-signature' ? 'visual signature' : object.kind}`} aria-pressed={object.id === selected} disabled={busy} onClick={() => onSelect(object.id)} onDoubleClick={()=>{if(object.kind==='text')onEditText?.(object)}} onKeyDown={event=>{if(event.key==='Enter'&&object.kind==='text')onEditText?.(object)}} onFocus={() => { if (!dirty) onSelect(object.id) }}/>
       {object.id === selected && (['nw','ne','sw','se'] as Corner[]).map(corner => <button key={corner} data-object-id={object.id} data-corner={corner} className={`resize-handle handle-${corner}`} aria-label={`Drag to resize ${names[corner]}; keyboard users can use size fields`} disabled={busy}/>)}
     </div>)}
     {ghost && <svg className="gesture-preview" viewBox={`${origin[0]} ${origin[1]} ${image.width/image.rasterScale} ${image.height/image.rasterScale}`} aria-hidden="true">{ghost.mode === 'create' && tool === 'ink' ? <polyline points={ghost.points.map(p => p.join(',')).join(' ')} fill="none" stroke="#2859cf" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round"/> : <rect x={ghost.box.x} y={ghost.box.y} width={ghost.box.width} height={ghost.box.height} fill="#2859cf10" stroke="#2859cf" strokeWidth="1" strokeDasharray="4 3"/>}</svg>}

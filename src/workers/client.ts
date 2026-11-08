@@ -1,4 +1,5 @@
 import type { Command, Progress, Response, Result } from './protocol'
+import { beginDocumentJob } from '../offline/activity'
 
 export class PdfWorkerClient {
   private worker = new Worker(new URL('./pdf.worker.ts', import.meta.url), { type: 'module' })
@@ -6,8 +7,8 @@ export class PdfWorkerClient {
   private ready = false
   private stopped = false
   private outbox: { id: number; command: Command }[] = []
-  private pending = new Map<number, { resolve: (value: Result) => void; reject: (error: Error) => void }>()
-  constructor(private onProgress?: (label: string) => void) {
+  private pending = new Map<number, { resolve: (value: Result) => void; reject: (error: Error) => void; finish: () => void }>()
+  constructor(private onProgress?: (label: string) => void, private context: 'editor' | 'tools' = 'editor') {
     this.worker.onmessage = (event: MessageEvent<Response | Progress | { ready: true }>) => {
       if ('ready' in event.data) {
         this.ready = true
@@ -19,25 +20,27 @@ export class PdfWorkerClient {
       const { id, result, error } = event.data
       const request = this.pending.get(id)
       this.pending.delete(id)
+      request?.finish()
       if (error) request?.reject(new Error(error))
       else if (result !== undefined) request?.resolve(result)
     }
-    this.worker.onerror = () => this.fail(new Error('The PDF worker stopped. Choose Recover workspace to restore your last applied changes, or clear the workspace and reopen your file.'))
+    this.worker.onerror = () => this.fail(new Error(this.context === 'tools' ? 'The page tools worker stopped. Close and reopen Page tools to retry. Your editor is unchanged.' : 'The PDF worker stopped. Choose Recover workspace to restore your last applied changes, or clear the workspace and reopen your file.'))
   }
   request<T extends Result>(command: Command): Promise<T> {
-    if (this.stopped) return Promise.reject(new Error('The PDF engine stopped. Clear the workspace and reopen your file.'))
+    if (this.stopped) return Promise.reject(new Error(this.context === 'tools' ? 'The page tools worker stopped. Close and reopen Page tools to retry. Your editor is unchanged.' : 'The PDF engine stopped. Clear the workspace and reopen your file.'))
     const id = ++this.sequence
     return new Promise<T>((resolve, reject) => {
-      this.pending.set(id, { resolve: value => resolve(value as T), reject })
+      this.pending.set(id, { resolve: value => resolve(value as T), reject,finish:beginDocumentJob() })
       if (this.ready) this.send({ id, command })
       else this.outbox.push({ id, command })
     })
   }
   private send(request: { id: number; command: Command }) {
     const command = request.command
-    const transfer = command.type === 'open' ? [command.bytes] : command.type === 'import-image' ? [command.asset.bytes] : command.type === 'restore' ? [command.source, command.checkpoint.pdf, ...command.assets.map(asset => asset.bytes)] : []
-    this.worker.postMessage(request, transfer)
+    const transfer = command.type === 'open' || command.type === 'tool-source' ? [command.bytes] : command.type === 'import-image' ? [command.asset.bytes] : command.type === 'restore' ? [command.source, command.checkpoint.pdf, ...command.assets.map(asset => asset.bytes)] : []
+    try{this.worker.postMessage(request, transfer)}
+    catch(error){const pending=this.pending.get(request.id);this.pending.delete(request.id);pending?.finish();pending?.reject(error instanceof Error?error:new Error('The request could not be sent to the PDF worker.'))}
   }
-  private fail(error: Error) { this.stopped = true; this.outbox = []; this.pending.forEach(request => request.reject(error)); this.pending.clear() }
+  private fail(error: Error) { this.stopped = true; this.outbox = []; this.pending.forEach(request => {request.finish();request.reject(error)}); this.pending.clear() }
   dispose() { this.worker.terminate(); this.fail(new Error('Operation cancelled.')) }
 }

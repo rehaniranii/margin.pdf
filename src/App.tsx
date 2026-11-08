@@ -1,7 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { PdfWorkerClient } from './workers/client'
 import type { OpenResult } from './workers/protocol'
-import type { AddedObject, EditorTool, EditorView, ImageAssetInfo, ObjectBox, Point, SessionCheckpoint, TextEdit, TextRegion, WorkingDocument } from './model/document'
+import type { AddedObject, AddedText, EditorTool, EditorView, ImageAssetInfo, ObjectBox, Point, SessionCheckpoint, TextEdit, TextRegion, WorkingDocument } from './model/document'
+import type { PdfFeatures } from './model/utilities'
+import { textDraft } from './model/text-draft'
+import { UtilityPanel } from './components/UtilityPanel'
+import type { UtilityTab } from './components/UtilityPanel'
+import type { InlineDraft } from './components/InlineTextEditor'
 import { PagePreview } from './components/PagePreview'
 import { PageRail } from './components/PageRail'
 import { TextProperties } from './components/TextProperties'
@@ -11,6 +16,10 @@ import { ToolBar } from './components/ToolBar'
 import { ObjectProperties } from './components/ObjectProperties'
 import type { ToolDefaults } from './components/ObjectProperties'
 import { clampBox, inkFromPoints, pointerToPage } from './geometry/objects'
+import { exportCheckpoint, needsExport, planSignature } from './model/export-state'
+import type { ExportCheckpoint } from './model/export-state'
+import { useUnsavedChangesWarning } from './hooks/useUnsavedChangesWarning'
+import { useDocumentActivity } from './offline/useDocumentActivity'
 
 export default function App() {
   const client = useRef<PdfWorkerClient | null>(null)
@@ -23,15 +32,21 @@ export default function App() {
   const assetFiles = useRef(new Map<string, { bytes: ArrayBuffer; info: ImageAssetInfo }>())
   const replacingImage = useRef<string | undefined>(undefined)
   const zoomAnchor = useRef<{ point: Point; viewport: Point } | undefined>(undefined)
+  const requestedUtility=useRef(new URLSearchParams(location.hash.split('?')[1]).get('tool'))
+  const [initialUtility,setInitialUtility]=useState<UtilityTab>()
+  const clipboardContext = useRef('')
+  const lastPointer = useRef<Point | undefined>(undefined)
   const resetScroll = useRef(false)
   const [document, setDocument] = useState<WorkingDocument>()
+  const [downloaded,setDownloaded] = useState<ExportCheckpoint>()
   const [view, setView] = useState<EditorView>()
   const [page, setPage] = useState(0)
   const [zoom, setZoom] = useState(0.9)
   const [busy, setBusy] = useState('Starting PDF engine…')
+  useDocumentActivity(!!busy)
   const [error, setError] = useState('')
   const [selection, setSelection] = useState<string>()
-  const [dirty, setDirty] = useState(false)
+  const [propertyDirty, setDirty] = useState(false)
   const [showRegions, setShowRegions] = useState(true)
   const [tool, setTool] = useState<EditorTool>('edit')
   const [objectSelection, setObjectSelection] = useState<string>()
@@ -43,11 +58,21 @@ export default function App() {
   const [notice, setNotice] = useState('')
   const [pageInput, setPageInput] = useState('1')
   const [zoomInput, setZoomInput] = useState('90')
+  const [utilitiesOpen,setUtilitiesOpen] = useState(false)
+  const [features,setFeatures] = useState<PdfFeatures>()
+  const [draftText,setDraftText] = useState<TextEdit>()
+  const [inlineSource,setInlineSource] = useState(false)
+  const [inlineAdded,setInlineAdded] = useState<AddedText>()
   const selectedObject = view?.objects.find(object => object.id === objectSelection && object.page === page)
+  const dirty = propertyDirty || !!inlineAdded && (selectedObject?.kind!=='text'||inlineAdded.text!==selectedObject.text)
+  const unexported = needsExport(document,downloaded)
+  useUnsavedChangesWarning(unexported || dirty)
+  clipboardContext.current = JSON.stringify([document?.source.id,page,tool,selection,objectSelection,dirty,view?.revision,utilitiesOpen])
 
   useEffect(() => {
     client.current = new PdfWorkerClient(setBusy)
-    void loadSample()
+    const requested=requestedUtility.current;requestedUtility.current=null
+    if(requested&&['organize','merge','extract','from-images','to-images','watermark','numbers'].includes(requested)){setInitialUtility(requested as UtilityTab);setUtilitiesOpen(true);setBusy('')}else void loadSample()
     return () => { generation.current++; client.current?.dispose() }
   }, [])
 
@@ -74,9 +99,12 @@ export default function App() {
     for (const id of assetFiles.current.keys()) if (!used.has(id)) assetFiles.current.delete(id)
   }
 
-  function acceptOpen(token: number, result: OpenResult, name: string, kind: 'sample' | 'local') {
+  function acceptOpen(token: number, result: OpenResult, name: string, kind: 'sample' | 'local', hasLocalCopy = true) {
     if (token !== generation.current) return
+    lastPointer.current=undefined
+    setFeatures(result.info.features);setInlineSource(false);setInlineAdded(undefined);setDraftText(undefined)
     const sourceId = crypto.randomUUID()
+    setDownloaded(hasLocalCopy ? { sourceId,plan:planSignature({edits:[],objects:[]}) } : undefined)
     setDocument({ source: { id: sourceId, name, kind, bytes: result.source }, pages: Array.from({ length: result.info.pageCount }, (_, i) => ({ sourceId, sourcePage: i, rotation: 0 })), edits: [], objects: [], revision: 0 })
     checkpoint.current = { frames:[{edits:[],objects:[]}],position:0,pdf:result.source,revision:0 }
     assetFiles.current.clear(); setPendingImage(undefined); setObjectSelection(undefined); setTool('edit')
@@ -90,12 +118,12 @@ export default function App() {
     await run(async (worker, token) => acceptOpen(token, await worker.request<OpenResult>({ type: 'sample', ...openingOptions() }), 'A little room to edit.pdf', 'sample'), 'Generating sample…')
   }
 
-  async function openFile(file?: File) {
+  async function openFile(file?: File, hasLocalCopy = true) {
     if (!file) return
     await run(async (worker, token) => {
       const bytes = await file.arrayBuffer()
       if (token !== generation.current) return
-      acceptOpen(token, await worker.request<OpenResult>({ type: 'open', bytes, ...openingOptions() }), file.name, 'local')
+      acceptOpen(token, await worker.request<OpenResult>({ type: 'open', bytes, ...openingOptions() }), file.name, 'local',hasLocalCopy)
     }, 'Opening and checking PDF text…')
   }
 
@@ -143,13 +171,25 @@ export default function App() {
 
   function selectRegion(region: TextRegion) {
     if (dirty && selection !== region.id) { setError('Apply or discard your text changes before selecting another region.'); return }
-    setSelection(region.id); setError('')
+    setSelection(region.id); setError(''); if(selection!==region.id)setInlineSource(false)
   }
+
+  function beginInline(region?:TextRegion) {
+    if(!region||busy)return
+    if(dirty&&selection!==region.id){setError('Apply or cancel your current draft first.');return}
+    selectRegion(region)
+    if(region.unsupported){setError(region.unsupported);return}
+    if(selection!==region.id||!draftText)setDraftText(textDraft(region,view?.edits.find(edit=>edit.regionId===region.id)))
+    setInlineSource(true);setInlineAdded(undefined)
+  }
+  function changeText(edit:TextEdit){setDraftText(edit);if(selected)setDirty(JSON.stringify(edit)!==JSON.stringify(textDraft(selected,applied)))}
+  function beginAddedInline(object:AddedObject){if(object.kind!=='text'||busy||dirty)return;setObjectSelection(object.id);setInlineSource(false);setInlineAdded(structuredClone(object))}
+  function cancelInline(){setInlineSource(false);setInlineAdded(undefined);if(selected)setDraftText(textDraft(selected,applied));setDirty(false)}
 
   async function applyEdit(edit: TextEdit) {
     await run(async (worker, token) => {
       const result = await worker.request<EditorView>({ type: 'edit', edit, scale: zoom, dpr: window.devicePixelRatio })
-      if (token === generation.current) { commitView(result); setDirty(false) }
+      if (token === generation.current) { commitView(result); setDirty(false);setInlineSource(false) }
     }, 'Removing original text and verifying replacement…')
   }
 
@@ -167,7 +207,7 @@ export default function App() {
       const id = pendingImage.id; setPendingImage(undefined); assetFiles.current.delete(id)
       void client.current?.request({type:'release-image',id}).catch(() => {})
     }
-    setTool(next); setSelection(undefined); setObjectSelection(undefined); setError('')
+    setTool(next); setSelection(undefined); setObjectSelection(undefined); setError('');setInlineSource(false);setInlineAdded(undefined)
     setDefaults(toolDefaults.current[next] ?? {color:next==='highlight'?'#ffe16b':'#2859cf',lineWidth:2,opacity:0.25,purpose:'note'})
   }
 
@@ -179,7 +219,7 @@ export default function App() {
   async function putObject(object: AddedObject) {
     await run(async (worker,token) => {
       const result = await worker.request<EditorView>({type:'object',object,scale:zoom,dpr:window.devicePixelRatio})
-      if (token === generation.current) { commitView(result); setObjectSelection(object.id); setSelection(undefined); setDirty(false) }
+      if (token === generation.current) { commitView(result); setObjectSelection(object.id); setSelection(undefined); setDirty(false);setInlineAdded(object.kind==='text'&&!inlineAdded&&!view?.objects.some(old=>old.id===object.id)?structuredClone(object):undefined) }
     },'Adding or updating PDF object…')
   }
 
@@ -217,7 +257,7 @@ export default function App() {
   }
 
   function chooseImage() { replacingImage.current = selectedObject?.kind === 'image' ? selectedObject.id : undefined; imageInput.current?.click() }
-  async function importImage(file?: File) {
+  async function importImage(file?: File, immediate = false, at?:Point) {
     if (!file) return
     await run(async (worker,token) => {
       const bytes = await file.arrayBuffer(), id = crypto.randomUUID(), backup = bytes.slice(0)
@@ -227,12 +267,20 @@ export default function App() {
       if (pendingImage) { assetFiles.current.delete(pendingImage.id); await worker.request({type:'release-image',id:pendingImage.id}) }
       assetFiles.current.set(id,{bytes:backup,info})
       const target = view?.objects.find(object => object.id === replacingImage.current)
+      try {
       if (target?.kind === 'image' && view) {
         const box = clampBox({...target.box,height:target.box.width*info.height/info.width},view.image.bounds)
         const ratio = info.width/info.height; box.width = box.height*ratio
         const result = await worker.request<EditorView>({type:'object',object:{...target,assetId:id,box},scale:zoom,dpr:window.devicePixelRatio})
         if (token === generation.current) { commitView(result); setDirty(false) }
+      } else if(immediate&&view) {
+        const bounds=view.image.bounds,w=Math.min(180,bounds[2]-bounds[0]-4),h=w*info.height/info.width,scale=Math.min(1,(bounds[3]-bounds[1]-4)/h),width=w*scale,height=h*scale
+        const box=clampBox({x:at?.[0]??(bounds[0]+bounds[2]-width)/2,y:at?.[1]??(bounds[1]+bounds[3]-height)/2,width,height},bounds)
+        const object:AddedObject={kind:'image',id:crypto.randomUUID(),page,box,assetId:id}
+        const result=await worker.request<EditorView>({type:'object',object,scale:zoom,dpr:window.devicePixelRatio})
+        if(token===generation.current){setPendingImage(undefined);commitView(result);setTool('select');setSelection(undefined);setInlineSource(false);setInlineAdded(undefined);setObjectSelection(object.id);setDirty(false)}
       } else { setPendingImage(info); setTool('image'); setObjectSelection(undefined) }
+      } catch(reason) {assetFiles.current.delete(id);await worker.request({type:'release-image',id}).catch(()=>{});throw reason}
     },'Reading JPG/PNG on this device…')
     replacingImage.current = undefined
   }
@@ -257,6 +305,7 @@ export default function App() {
 
   useEffect(() => {
     const listener = (event: KeyboardEvent) => {
+      if(utilitiesOpen)return
       const element = event.target as HTMLElement
       if (element.closest('input:not([type="checkbox"]):not([type="radio"]), textarea, select, [contenteditable="true"]')) return
       if (event.code === 'Space') { event.preventDefault(); setSpacePan(true); return }
@@ -273,24 +322,78 @@ export default function App() {
     const blur = () => setSpacePan(false)
     window.addEventListener('keydown',listener); window.addEventListener('keyup',release); window.addEventListener('blur',blur)
     return () => {window.removeEventListener('keydown',listener);window.removeEventListener('keyup',release);window.removeEventListener('blur',blur)}
-  },[document,busy,view,dirty,page,zoom,selectedObject])
+  },[document,busy,view,dirty,page,zoom,selectedObject,utilitiesOpen])
 
   function clear() {
     generation.current++; inFlight.current = false
     client.current?.dispose(); client.current = new PdfWorkerClient(setBusy)
     checkpoint.current = undefined; assetFiles.current.clear(); setObjectSelection(undefined); setPendingImage(undefined); setTool('edit'); setRecovering(false); setNotice('');
-    setDocument(undefined); setView(undefined); setPage(0); setSelection(undefined); setDirty(false); setError(''); setBusy('')
+    if(input.current)input.current.value=''
+    if(imageInput.current)imageInput.current.value=''
+    replacingImage.current=undefined;lastPointer.current=undefined;zoomAnchor.current=undefined
+    setInlineSource(false);setInlineAdded(undefined);setDraftText(undefined);setFeatures(undefined)
+    setDocument(undefined);setDownloaded(undefined); setView(undefined); setPage(0); setSelection(undefined); setDirty(false); setError(''); setBusy('')
   }
 
   function exportPdf() {
     if (!document || !checkpoint.current || busy || dirty) return
     const base=document.source.name.replace(/\.pdf$/i,'')
     downloadPdf(checkpoint.current.pdf.slice(0),document.edits.length||document.objects.length?`${base}-edited.pdf`:document.source.name)
+    setDownloaded(exportCheckpoint(document))
   }
 
   const selected = view?.text.regions.find(region => region.id === selection)
   const applied = view?.edits.find(edit => edit.regionId === selection)
   const supported = view?.text.regions.filter(region => !region.unsupported).length ?? 0
+  useEffect(()=>{setDraftText(selected?textDraft(selected,applied):undefined);if(tool==='edit')setDirty(false)},[selection,view?.revision])
+
+  function pasteText(value:string){
+    if(!view||busy||dirty)return
+    if(selected&&!selected.unsupported&&tool==='edit'){
+      const edit={...textDraft(selected,applied),text:value};setDraftText(edit);setInlineSource(true);setDirty(JSON.stringify(edit)!==JSON.stringify(textDraft(selected,applied)))
+    }else if(selected?.unsupported&&tool==='edit'){setError(selected.unsupported)}
+    else if(selectedObject?.kind==='text') {setInlineAdded({...selectedObject,text:value});setDirty(value!==selectedObject.text)}
+    else {
+      const bounds=view.image.bounds,width=Math.min(260,bounds[2]-bounds[0]-4),height=Math.min(100,bounds[3]-bounds[1]-4)
+      const box=clampBox({x:lastPointer.current?.[0]??(bounds[0]+bounds[2]-width)/2,y:lastPointer.current?.[1]??(bounds[1]+bounds[3]-height)/2,width,height},bounds)
+      const draft:AddedText={kind:'text',id:crypto.randomUUID(),page,box,text:value,font:'Helvetica',size:16,color:defaults.color};setTool('select');setSelection(undefined);setObjectSelection(draft.id);setInlineAdded(draft);setDirty(true)
+    }
+  }
+  async function pasteFromClipboard(){
+    if(!view||busy||dirty)return
+    const context=clipboardContext.current,token=generation.current
+    const stillCurrent=()=>{if(context===clipboardContext.current&&token===generation.current)return true;setNotice('Paste cancelled because the workspace changed. Paste again in the current document.');return false}
+    try{
+      if(!navigator.clipboard?.read)throw new Error('Use Ctrl/Cmd+V over the document to paste, or choose a local image.')
+      const items=await navigator.clipboard.read();if(!stillCurrent())return
+      for(const item of items){const image=item.types.find(type=>type==='image/png'||type==='image/jpeg');if(image){const blob=await item.getType(image);if(!stillCurrent())return;replacingImage.current=undefined;await importImage(new File([blob],image==='image/png'?'pasted.png':'pasted.jpg',{type:image}),true,lastPointer.current);return}}
+      const text=items.find(item=>item.types.includes('text/plain'));if(text){const value=await (await text.getType('text/plain')).text();if(stillCurrent())pasteText(value);return}
+      setError('The clipboard has no supported text or JPG/PNG image. Copy text or an image first.')
+    }catch{setError('Clipboard access is unavailable. Use Ctrl/Cmd+V over the document, or choose a local image.')}
+  }
+  useEffect(()=>{
+    const nativeField=(target:EventTarget|null)=>target instanceof HTMLElement&&!!target.closest('input,textarea,select,[contenteditable="true"],dialog')
+    const copy=(event:ClipboardEvent)=>{
+      if(utilitiesOpen||nativeField(event.target)||window.getSelection()?.toString())return
+      const value=tool==='edit'&&selected?(applied?.text??selected.text):selectedObject?.kind==='text'?selectedObject.text:undefined
+      if(value!==undefined){event.preventDefault();event.clipboardData?.setData('text/plain',value)}
+    }
+    const paste=(event:ClipboardEvent)=>{
+      if(utilitiesOpen||nativeField(event.target)||!view||busy)return
+      if(dirty){event.preventDefault();setError('Apply or cancel your draft before pasting another object.');return}
+      const file=Array.from(event.clipboardData?.files??[]).find(file=>file.type==='image/png'||file.type==='image/jpeg')
+      if(file){event.preventDefault();replacingImage.current=undefined;void importImage(file,true,lastPointer.current);return}
+      const value=event.clipboardData?.getData('text/plain');if(value){event.preventDefault();pasteText(value)}
+    }
+    window.addEventListener('copy',copy);window.addEventListener('paste',paste)
+    return()=>{window.removeEventListener('copy',copy);window.removeEventListener('paste',paste)}
+  },[utilitiesOpen,view,busy,dirty,page,zoom,selection,objectSelection,tool])
+  let inlineDraft:InlineDraft|undefined
+  if(inlineSource&&selected&&draftText)inlineDraft={...draftText,bounds:selected.bounds,multiline:false}
+  else if(inlineAdded)inlineDraft={...inlineAdded,bounds:[inlineAdded.box.x,inlineAdded.box.y,inlineAdded.box.x+inlineAdded.box.width,inlineAdded.box.y+inlineAdded.box.height],multiline:true}
+  function updateInline(value:string){if(inlineSource&&draftText)changeText({...draftText,text:value});else if(inlineAdded){setInlineAdded({...inlineAdded,text:value});setDirty(selectedObject?.kind!=='text'||value!==selectedObject.text)}}
+  function applyInline(){if(inlineSource&&draftText)void applyEdit(draftText);else if(inlineAdded)void putObject(inlineAdded)}
+  function openTools(){if(dirty||busy)return;setInitialUtility(undefined);setUtilitiesOpen(true);setInlineSource(false);setInlineAdded(undefined)}
 
   return <div className="app-shell">
     <header className="app-header">
@@ -300,21 +403,24 @@ export default function App() {
       <input ref={imageInput} type="file" accept="image/png,image/jpeg,.jpg,.jpeg,.png" hidden onChange={event => { void importImage(event.target.files?.[0]); event.target.value = '' }}/><input ref={input} type="file" accept="application/pdf,.pdf" hidden onChange={event => { void openFile(event.target.files?.[0]); event.target.value = '' }}/>
     </header>
     <div className="document-bar"><div className="document-identity"><span className="file-symbol" aria-hidden="true">PDF</span><strong title={document?.source.name}>{document?.source.name ?? 'No document open'}</strong>{document?.source.kind === 'sample' && <span className="sample-badge">Sample</span>}{document && document.edits.length + document.objects.length > 0 && <span className="edited-badge">{document.edits.length + document.objects.length} changes</span>}</div><div className="history-actions"><button aria-label="Undo document change" title="Undo (Ctrl/Cmd+Z)" disabled={!!busy || !view?.canUndo || dirty} onClick={() => history('undo')}>↶ <span>Undo</span></button><button aria-label="Redo document change" title="Redo (Ctrl/Cmd+Shift+Z)" disabled={!!busy || !view?.canRedo || dirty} onClick={() => history('redo')}>↷ <span>Redo</span></button><button className="text-button" onClick={clear}>Clear workspace</button></div></div>
-    <ToolBar tool={tool} busy={!!busy || !document} onChoose={chooseTool}/>
+    <div className="workspace-tools"><ToolBar tool={tool} busy={!!busy || !document} onChoose={chooseTool}/><div className="clipboard-tools"><button disabled={!!busy||dirty||!document} onClick={pasteFromClipboard} title="Paste text or an image (Ctrl/Cmd+V)">Paste</button>{selected&&<button disabled={!!busy} onClick={()=>{if(!navigator.clipboard?.writeText){setError('Use Ctrl/Cmd+C to copy the selected text.');return}void navigator.clipboard.writeText(applied?.text??selected.text).catch(()=>setError('Use Ctrl/Cmd+C to copy the selected text.'))}}>Copy text</button>}<button onClick={openTools} disabled={!!busy||dirty}>Page tools</button></div></div>
     <main className="workspace">
-      <PageRail count={document?.pages.length ?? 0} active={page} image={view?.image} busy={!!busy} onSelect={navigate}/>
-      <section ref={preview} className="document-area" aria-label="PDF preview">
+      <PageRail count={document?.pages.length ?? 0} active={page} image={view?.image} busy={!!busy} onSelect={navigate} onOrganize={openTools}/>
+      <section ref={preview} className="document-area" aria-label="PDF preview" onPointerMove={event=>{const paper=preview.current?.querySelector<HTMLElement>('.page-paper');if(paper&&view&&paper.contains(event.target as Node))lastPointer.current=pointerToPage([event.clientX,event.clientY],paper.getBoundingClientRect(),view.image)}} onDragOver={event=>{if(event.dataTransfer.types.includes('Files')){event.preventDefault();event.dataTransfer.dropEffect=busy||dirty?'none':'copy'}}} onDrop={event=>{event.preventDefault();if(busy||dirty){setError('Apply or cancel your draft before dropping an image.');return}const file=Array.from(event.dataTransfer.files).find(file=>file.type==='image/png'||file.type==='image/jpeg');if(!file){setError('Drop a JPG or PNG image onto the page. Use Open PDF for documents.');return}const paper=preview.current?.querySelector<HTMLElement>('.page-paper'),point=paper&&view?pointerToPage([event.clientX,event.clientY],paper.getBoundingClientRect(),view.image):undefined;replacingImage.current=undefined;void importImage(file,true,point)}}>
         <div className="viewer-toolbar"><label className="regions-toggle"><input type="checkbox" checked={showRegions} onChange={event => setShowRegions(event.target.checked)}/> Text regions</label><div className="viewer-controls"><button aria-label="Zoom out" disabled={!document || !!busy || zoom <= 0.1} onClick={() => navigate(page, Math.max(0.1, zoom - 0.1))}>−</button><form className="zoom-form" onSubmit={event => {event.preventDefault();const value=Number(zoomInput);if (!Number.isFinite(value)||value<10||value>400) setError('Enter zoom from 10% to 400%.');else void navigate(page,value/100)}}><input aria-label="Zoom percent" inputMode="numeric" value={zoomInput} onChange={event=>setZoomInput(event.target.value)} disabled={!!busy || !document}/><span>%</span><button className="visually-hidden" type="submit">Apply zoom</button></form><button aria-label="Zoom in" disabled={!document || !!busy || zoom >= 4} onClick={() => navigate(page, Math.min(4, zoom + 0.1))}>+</button><button className="fit-button" aria-label="Fit page width" disabled={!document || !!busy} onClick={fitPage}>Width</button><button className="fit-button" aria-label="Fit whole page" disabled={!document || !!busy} onClick={fitWholePage}>Page</button><span className="toolbar-divider"/><button aria-label="Previous page" disabled={!document || !!busy || page === 0} onClick={() => navigate(page - 1)}>‹</button><form className="page-jump" onSubmit={event=>{event.preventDefault();const value=Number(pageInput);if (!Number.isInteger(value)||value<1||value>(document?.pages.length??0)) setError(`Enter a page from 1 to ${document?.pages.length??0}.`);else void navigate(value-1)}}><input aria-label="Go to page number" inputMode="numeric" value={pageInput} onChange={event=>setPageInput(event.target.value)} disabled={!document || !!busy}/><span>/ {document?.pages.length??0}</span><button className="visually-hidden" type="submit">Go to page</button></form><button aria-label="Next page" disabled={!document || !!busy || page + 1 >= document.pages.length} onClick={() => navigate(page + 1)}>›</button></div></div>
         {busy && <div className="job-progress" role="status"><progress aria-label="Document processing"/><span>{busy}</span><button disabled={recovering} onClick={recover}>{recovering ? 'Restoring…' : 'Cancel operation'}</button></div>}
         {notice && <div className="notice-banner" role="status">{notice}</div>}
+        {features?.signed&&<div className="notice-banner">Digital signature detected. Editing and page transformations may invalidate it. This editor does not verify certificates; save the original separately.</div>}
+        {features?.signatureCheckIncomplete&&<div className="notice-banner">Some PDF objects could not be inspected for signatures. Changes may invalidate signatures in this document.</div>}
         {error && <div className="error-banner" role="alert">{error}{checkpoint.current && <button onClick={recover}>Recover workspace</button>}<button onClick={() => setError('')} aria-label="Dismiss error">×</button></div>}
         {view?.text.message && <div className="notice-banner">{view.text.message}</div>}
         {document && view && !view.text.message && !supported && <div className="notice-banner">This page has text, but none meets the supported editing checks. Select an amber region for details.</div>}
-        <div className="page-stage" aria-busy={!!busy}><PagePreview image={view?.image} page={page} zoom={zoom} regions={view?.text.regions} edits={view?.edits} selected={selection} busy={!!busy} showRegions={showRegions} onSelect={selectRegion} tool={spacePan ? 'pan' : tool} objects={view?.objects.filter(object=>object.page===page)} selectedObject={objectSelection} dirty={dirty} strokeWidth={defaults.lineWidth} onSelectObject={selectObject} onPutObject={putObject} onCreateObject={createObject}/>{!document && !busy && <div className="empty-actions"><button className="primary" onClick={() => input.current?.click()}>Open PDF</button><button className="secondary" onClick={loadSample}>Open sample</button></div>}</div>
-        <footer className="viewer-footer"><span role="status">{busy || (dirty ? 'Unapplied property changes' : document && (document.edits.length || document.objects.length) ? 'Actual edited PDF preview' : document ? `${supported} supported text regions on this page` : 'Open a PDF to begin')}</span><span>No uploads. No account.</span></footer>
+        <div className="page-stage" aria-busy={!!busy}><PagePreview image={view?.image} page={page} zoom={zoom} regions={view?.text.regions} edits={view?.edits} selected={selection} busy={!!busy} showRegions={showRegions} onSelect={selectRegion} tool={spacePan ? 'pan' : tool} objects={view?.objects.filter(object=>object.page===page)} selectedObject={objectSelection} dirty={dirty} strokeWidth={defaults.lineWidth} onSelectObject={selectObject} onPutObject={putObject} onCreateObject={createObject} onInline={beginInline} onEditObjectText={beginAddedInline} inlineDraft={inlineDraft} onInlineChange={updateInline} onInlineApply={applyInline} onInlineCancel={cancelInline}/>{!document && !busy && <div className="empty-actions"><button className="primary" onClick={() => input.current?.click()}>Open PDF</button><button className="secondary" onClick={loadSample}>Open sample</button></div>}</div>
+        <footer className="viewer-footer"><span role="status">{busy || (dirty ? 'Unapplied changes — apply and export before refreshing' : unexported ? 'Unexported changes — export before refreshing or closing' : document && (document.edits.length || document.objects.length) ? 'Actual edited PDF preview' : document ? `${supported} supported text regions on this page` : 'Open a PDF to begin')}</span><span>No uploads. No account.</span></footer>
       </section>
-      {tool === 'edit' ? <TextProperties key={document?.source.id ?? 'empty'} region={selected} applied={applied} revision={view?.revision ?? 0} busy={!!busy} onApply={applyEdit} onDirty={setDirty}/> : <ObjectProperties key={document?.source.id ?? 'empty'} object={selectedObject} revision={view?.revision??0} tool={tool} defaults={defaults} asset={selectedObject?.kind==='image' ? assetFiles.current.get(selectedObject.assetId)?.info : pendingImage} busy={!!busy} onDefaults={value=>{toolDefaults.current[tool]=value;setDefaults(value)}} onApply={putObject} onDelete={deleteObject} onDirty={setDirty} onChooseImage={chooseImage} onPlace={placeAtCenter}/>}
+      {tool === 'edit' ? <TextProperties key={document?.source.id ?? 'empty'} region={selected} applied={applied} draft={draftText} busy={!!busy} onApply={applyEdit} onChange={changeText} onInline={()=>beginInline(selected)}/> : <ObjectProperties key={document?.source.id ?? 'empty'} object={selectedObject} revision={view?.revision??0} tool={tool} defaults={defaults} asset={selectedObject?.kind==='image' ? assetFiles.current.get(selectedObject.assetId)?.info : pendingImage} busy={!!busy||!!inlineAdded} onDefaults={value=>{toolDefaults.current[tool]=value;setDefaults(value)}} onApply={putObject} onDelete={deleteObject} onDirty={setDirty} onChooseImage={chooseImage} onPlace={placeAtCenter}/>}
     </main>
-    <div className="foundation-note">PDF editor <span>Choose text, apply a change, and export the PDF. Your original file stays unchanged.</span><button className="text-button" onClick={loadSample} disabled={!!busy || dirty}>Open fresh sample</button></div>
+    {utilitiesOpen&&<UtilityPanel initialTab={initialUtility} current={document&&checkpoint.current?{bytes:checkpoint.current.pdf,name:document.source.name,count:document.pages.length}:undefined} onClose={()=>setUtilitiesOpen(false)} onOpen={(bytes,name,hasLocalCopy)=>{setUtilitiesOpen(false);void openFile(new File([bytes],name,{type:'application/pdf'}),hasLocalCopy)}}/>}
+    <div className="foundation-note">PDF editor <span>Double-click text to edit. Paste or drop images. Your original file stays unchanged.</span><button className="text-button" onClick={loadSample} disabled={!!busy || dirty}>Open fresh sample</button></div>
   </div>
 }

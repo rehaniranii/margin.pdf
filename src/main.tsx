@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client'
 import App from './App'
 import Home from './Home'
 import './styles.css'
+import { startOfflineDelivery } from './offline/client'
+import { OfflineStatus } from './components/OfflineStatus'
 
 // shortcut: hash routing with one route; switch to a router once more tools have pages.
 function Root() {
@@ -12,7 +14,8 @@ function Root() {
     addEventListener('hashchange', onChange)
     return () => removeEventListener('hashchange', onChange)
   }, [])
-  return hash === '#/edit' ? <App/> : <Home/>
+  return <><OfflineStatus/>{hash.split('?')[0] === '#/edit' ? <App/> : <Home/>}</>
 }
 
+startOfflineDelivery()
 createRoot(document.getElementById('root')!).render(<Root/>)

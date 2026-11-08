@@ -1,7 +1,7 @@
 # margin.pdf
 
 A free, standalone PDF workspace built with React, TypeScript, Vite, and a local
-MuPDF WebAssembly worker. **Phases 1–3 are implemented.** Existing-text editing
+MuPDF WebAssembly worker. **Phases 1–5 are implemented.** Existing-text editing
 is the primary workflow. No backend, accounts, analytics, payments, usage quotas,
 or external runtime services are used. Nothing has been deployed.
 
@@ -18,10 +18,21 @@ Open the printed localhost URL and choose **Open editor** (or go to `/#/edit`).
 A labeled two-page sample is generated in memory in the editor.
 Or choose **Open PDF** to use your own local PDF.
 
-1. Select a blue text region on the page. Keyboard focus and Enter also select it.
-2. Change the text, replacement font, size, or color in the properties panel.
-3. Choose **Apply changes** to remove the original and preview the actual resulting PDF.
-4. Choose **Export PDF** to save a local copy. The original file stays unchanged.
+1. Double-click a blue text region to edit directly on the page (keyboard: focus it and press Enter).
+2. Select, copy, paste and type normally in the on-page field. Enter applies; Escape cancels.
+3. Use the properties panel when you want to change font, size or color. It shares the same draft.
+4. Choose **Export PDF** to download the actual resulting PDF. Original files stay unchanged.
+
+Click a text region once to select it, then Ctrl/Cmd+C copies its applied text. The
+Copy text button is an alternative. Ctrl/Cmd+V outside a field, or the Paste button,
+pastes text or a clipboard JPG/PNG into the workspace. Text pasted over a selected
+supported span opens a replacement draft; otherwise it opens a new text-box draft.
+Double-click added text to edit it. Ctrl/Cmd+Enter applies added text; Escape cancels.
+Images paste immediately as selectable objects near the last page pointer position,
+or at the center. Local JPG/PNG files can also be dropped onto the preview. Clipboard
+fields retain normal selection, copy, cut, paste and typing undo. Clipboard HTML is
+not inserted. The Paste button needs browser clipboard access in a secure context
+(localhost or HTTPS); use the native shortcut or file input when it is unavailable.
 
 Unapplied drafts block export, changing documents, and switching text regions/pages.
 Apply or discard the draft first. Zoom preserves drafts. Document Undo/Redo controls
@@ -66,15 +77,16 @@ Embedded/subset fonts are **not reused**. The chosen replacement font may look d
 Unsupported text is never silently substituted. No full-page rasterization or opaque
 cover rectangle is used for text replacement. Replacement is not comprehensive
 sanitization: metadata, attachments, unused resources, and other occurrences are outside
-its promise. Editing PDFs can invalidate digital signatures; signature detection and
-operation-specific handling remain scheduled for Phase 4.
+its promise. Digital signature dictionaries and populated signature fields are detected on open,
+with an explicit warning. This is not certificate or signature-validity verification.
+Detection failures are reported rather than treated as proof that no signatures exist.
 
 ## Added objects and navigation
 
 The editor defaults to **Edit existing text**. The other tools add objects above the
 page content; they do not replace or erase original text.
 
-- **Add text:** click/drag a box, or use Place at page center, then edit its content,
+- **Add text:** click/drag a box, or use Place at page center, then type on the page. Use properties for
   font, size and color. Basic Latin text and line breaks are supported. Overflow is
   rejected until the box is enlarged or the text/font size is reduced.
 - **Add image:** choose a local JPG/PNG and click the page, or use Place at page center.
@@ -115,16 +127,83 @@ panel, rich typography, or pressure-sensitive ink in this phase. Ink strokes res
 paths with a fixed line width; they are individually selected/deleted. No signature
 certificate, identity, or tamper-evidence validation is provided.
 
+## Page tools and conversions
+
+Choose **Page tools** or **Organize** in the page rail. Homepage tool links open the
+corresponding utility directly, with file selection rather than silently adding the
+sample. Inputs, page plans and results are held in a separate worker in memory.
+Opening from an editor uses its last committed PDF, including text and added objects.
+
+- **Organize:** move pages earlier/later, rotate in 90-degree clockwise steps, delete,
+  or reset the proposed plan. At least one page must remain. Controls show 40 rows at
+  a time for larger plans.
+- **Merge:** add local PDFs, reorder/remove files, then combine their pages in file order.
+- **Extract / split:** select pages such as `1-3, 5` in the desired order. Extract one
+  combined PDF or prepare individually downloadable one-page PDFs.
+- **Images to PDF:** add/reorder JPG/PNG images. Fit proportionally on portrait A4 or
+  use image dimensions at 72 pixels/inch, with a configurable 0–100 pt margin.
+- **Pages to images:** selected pages become individually downloadable PNG/JPG files
+  with white backgrounds, including rendered annotation/form appearances. Requested
+  resolution is 36–300 dpi; actual resolution can be lower under the render budget and
+  is reported. Downloads are individually user-initiated; no ZIP or automatic batch.
+- **Watermark / Page numbers:** choose pages, size, color, opacity and center/bottom
+  placement. Watermarks use basic Latin in Helvetica. Numbering is “Page n of total”
+  in the selected order, with a configurable starting number; total counts selected
+  pages. Oversized or unsupported text is rejected. Stamps append above page content
+  and can overlap it, so inspect the result.
+
+PDF generation shows the first page of the actual result and offers Download PDF or
+Open result in editor. **Generation leaves the current editor unchanged. Opening a
+result starts a fresh source and edit history.** Export/download the working version
+first if you need both. Utility page changes are not part of the editor undo history;
+the proposed plan can be reset before generation. The new source remains in memory,
+and neither the original local file nor the previous download is modified.
+
+### Interactivity and signatures
+
+For merge, extraction/split, reorder, delete, rotate, watermarks and page numbers,
+all source form widgets and annotations are baked into static page content before
+pages are copied. Their visible appearances are retained where available, while
+form interaction and comment data are removed. Links, bookmarks, document metadata,
+attachments, tags and page labels are not copied. Missing/stale appearances and
+unapplied redaction appearances need particular care; this is not sanitization or
+applying pending redactions. Documents with optional-content layers or XFA forms
+are rejected until a locally flattened copy is supplied. Review/acknowledgment of
+these changes is required inside the tool before PDF generation.
+
+Digital signature validity is not preserved by these transformations. A static
+signature appearance may remain. Populated signature fields, signature ByteRange
+objects and catalog certification references are detected, without validating any
+certificate. Every transformation explains the signature consequences before export.
+Page images have no PDF interactivity, searchable text, bookmarks or signature
+validity. Images-to-PDF starts from image pixels and introduces none of these.
+
+Cancel operation terminates the utility worker, discards its in-flight work and
+reinitializes the current editor snapshot. Added utility input files are released
+and must be added again. The editor PDF and its history stay intact; closing the
+panel releases its source buffers and worker. This cancellation does not interrupt
+a synchronous WASM call cooperatively; it terminates the worker instead.
+
 ## Local data and current limits
 
-Working files, edit plans, and history stay in memory. Reloading or clearing discards
-them. Export is a user-initiated download. Runtime code has no upload path or persistent
+Working files, edit plans, and history stay in memory. The editor warns before a
+refresh, tab close or document navigation when drafts or unexported changes exist.
+Requesting an export records that edit plan; later edits or undoing away from that plan
+restore the warning. Undownloaded utility results and results opened as new sources
+are protected too. The footer identifies unexported changes. Browser-controlled leave
+prompts require prior interaction and are unreliable for mobile force-closes/crashes;
+they are a warning, not autosave. Confirming reload, clearing, or a crash still discards
+the session. Automatic local recovery is not enabled; document persistence would need
+an explicit opt-in. See [browser event limits](https://developer.mozilla.org/en-US/docs/Web/API/Window/beforeunload_event). Export is a user-initiated download. Runtime code has no upload path or persistent
 document storage. The production browser request log contained localhost application
 assets and local Blob URLs during the tested workflows.
 
-**Offline reload is not implemented yet.** Service worker delivery, complete CSP and
-privacy hardening, disconnected production tests, and broad release verification
-remain Phases 5/6. This is not a release-ready or offline-ready build.
+**Production offline delivery is implemented.** Download the application online first.
+On the first visit, wait for verification, export any work, then use Reload to enable
+offline. “Available offline” appears only after the controlling service worker verifies
+every required file for this build. This caches the application, not your documents;
+unsaved edits still disappear after a confirmed refresh or crash. Broad release
+verification remains Phase 6; this is not a release-readiness claim.
 
 Rendering has an 8-million-pixel budget and bounded dimensions/DPR. Source snapshots,
 compiled recovery bytes, image assets, engine state, and edit-plan history coexist in memory; very large or
@@ -134,13 +213,65 @@ its header before decoding to bound native memory. This is an application memory
 safeguard, not a universal browser limit or per-user quota. Larger images must be resized
 locally first. Cancel restores the last committed workspace; Clear workspace terminates the worker
 and deliberately discards the in-memory document. Inactive page tiles currently show numbers; the selected page
-has a real thumbnail. Page utilities/conversions and password entry
-are not implemented. No placeholder controls imply that they are.
+has a real thumbnail. Password entry is not implemented. No placeholder controls
+imply that unsupported functionality is complete.
 
-See [architecture](docs/ARCHITECTURE.md), [Phase 3 verification](docs/PHASE3-VERIFICATION.md),
+See [architecture](docs/ARCHITECTURE.md), [Phase 4 verification](docs/PHASE4-VERIFICATION.md),
+[Phase 3 verification](docs/PHASE3-VERIFICATION.md),
 [Phase 2 verification](docs/PHASE2-VERIFICATION.md),
 [historical Phase 1 verification](docs/VERIFICATION.md), and
 [engine/licensing decision](docs/ENGINE-DECISION.md).
+
+## Offline application delivery and privacy
+
+Use `npm run build` followed by `npm run preview` for offline verification. Development
+mode deliberately does not register the service worker or claim offline readiness.
+A secure context is required: HTTPS or localhost, served at the web root `/` with hash
+routes. File URLs and subpath deployment are not supported by this configuration.
+
+The static build produces an allowlist with byte sizes and SHA-256 hashes for the
+HTML, JavaScript, module workers, WASM, CSS, icon and license resources. Fonts currently
+come from the OS or MuPDF's bundled engine; any future emitted font files join the
+manifest automatically. Only those exact static GET URLs enter the versioned cache.
+Documents, filenames, passwords, page images/thumbnails, extracted text and edit plans
+never enter the offline cache, IndexedDB or browser storage. The theme preference is
+the only localStorage value. No accounts, analytics, advertisements, session recording,
+remote error reporting, remote fonts or runtime CDNs are included.
+
+To protect existing tabs/jobs, first installation does not claim open pages, and
+updates never force activation or reload. The initial explicit reload enables control;
+the existing unexported-change warning still applies. A downloaded update waits until
+all old-version margin.pdf tabs close. Export before closing. Old app caches are removed
+only at natural activation. Offline setup/repair buttons are disabled during document
+operations. Readiness is rechecked on focus, visibility and connectivity changes;
+missing or corrupted files remove Available offline. Reconnect and Retry offline setup
+to repair the fixed asset list. Browser eviction, storage denial, private browsing and
+real device limits can prevent continued offline availability.
+
+Controlled navigation uses the cached app shell. Unknown/foreign resources and non-GET
+requests are rejected without network fallback. Document JavaScript stays disabled;
+PDF links/actions are not connected to browser navigation, and previews come from local
+rendered bitmaps. Processing and utility tests include inert embedded JavaScript,
+OpenAction/AA, form submission/launch actions and remote links. Text-editing exports
+are not sanitization; actions can remain in the exported PDF for other readers.
+
+The production Content Security Policy blocks inline/string JavaScript, object/frame
+embedding, forms and foreign connections. It permits self-hosted modules, workers,
+WASM compilation, local Blob images and React's positional inline styles. The HTML
+contains a meta policy; `npm run preview` supplies response headers as well. Apply the
+emitted `_headers` rules (or equivalent configuration) on a static host, including
+worker JavaScript: meta CSP alone does not protect worker responses or frame embedding.
+Use a dedicated origin, serve `sw.js`/HTML with revalidation, and retain old hashed assets
+while older clients may still need them. Nothing has been deployed.
+
+Clear workspace terminates document workers, drops source/edit/history/image state,
+resets file inputs, and revokes preview/thumbnail URLs through component cleanup. It
+keeps application caches and theme preference; previously downloaded files remain on
+your device. Pending download URLs are released after browser pickup (up to 30 seconds).
+There is no opt-in local recovery implementation yet and no automatic document saving.
+
+See [Phase 5 verification](docs/PHASE5-VERIFICATION.md) for the actual disconnected
+production, cache repair, version update, storage and request checks performed.
 
 ## Licensing status
 

@@ -32,3 +32,39 @@ test('waits for WASM readiness, transfers source ownership, correlates replies, 
     await assert.rejects(client.request({ type: 'sample' }), /Clear the workspace/)
   } finally { globalThis.Worker = originalWorker }
 })
+
+test('utility worker failures offer recovery within page tools without discarding the editor', async () => {
+  const originalWorker = globalThis.Worker
+  let instance: { onerror?: () => void; terminate(): void }
+  class FailedWorker {
+    onmessage?: (event: {data:unknown}) => void
+    onerror?: () => void
+    constructor() { instance = this }
+    postMessage() {}
+    terminate() {}
+  }
+  globalThis.Worker = FailedWorker as unknown as typeof Worker
+  try {
+    const client = new PdfWorkerClient(undefined, 'tools')
+    const pending = client.request({ type:'tool-build', spec:{kind:'pages',pages:[],acceptFlattening:true} })
+    instance!.onerror?.()
+    await assert.rejects(pending, /Close and reopen Page tools.*editor is unchanged/)
+    await assert.rejects(client.request({type:'tool-release',id:'source'}), /Close and reopen Page tools/)
+    client.dispose()
+  } finally { globalThis.Worker = originalWorker }
+})
+
+test('failed buffer transfer releases activity and leaves the worker available for recovery', async () => {
+ const originalWorker=globalThis.Worker
+ const {activeJobCount}=await import('../src/offline/activity')
+ let instance:{onmessage?: (event:{data:unknown})=>void}
+ class CloneFailure {
+  onmessage?: (event:{data:unknown})=>void
+  onerror?:()=>void
+  constructor(){instance=this}
+  postMessage(){throw new Error('Synthetic transfer failure')}
+  terminate(){}
+ }
+ globalThis.Worker=CloneFailure as unknown as typeof Worker
+ try{const client=new PdfWorkerClient();instance!.onmessage?.({data:{ready:true}});await assert.rejects(client.request({type:'sample'}),/transfer failure/);assert.equal(activeJobCount(),0);client.dispose()}finally{globalThis.Worker=originalWorker}
+})

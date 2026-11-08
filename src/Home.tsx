@@ -4,20 +4,20 @@ import './home.css'
 // Only tools with a working route get a link; the rest are labelled honestly until they ship.
 const tools = [
   { name: 'Edit text', blurb: 'Change existing text right on the page.', href: '#/edit', icon: 'M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4' },
-  { name: 'Merge', blurb: 'Combine several PDFs into one file.', icon: 'M6 4v6a4 4 0 0 0 4 4h4M18 4v6a4 4 0 0 1-4 4M12 14v6' },
-  { name: 'Split', blurb: 'Pull pages or ranges into new files.', icon: 'M12 4v6M12 10l-6 10M12 10l6 10' },
-  { name: 'Organize', blurb: 'Reorder, delete and duplicate pages.', icon: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z' },
-  { name: 'Rotate', blurb: 'Turn pages the right way up.', icon: 'M20 12a8 8 0 1 1-3-6.2M20 4v5h-5' },
-  { name: 'Image to PDF', blurb: 'Turn JPG and PNG images into a PDF.', icon: 'M4 5h16v14H4zM4 16l5-5 4 4 2-2 5 5M15 9h.01' },
-  { name: 'PDF to image', blurb: 'Export pages as crisp images.', icon: 'M6 3h8l4 4v14H6zM14 3v4h4M9 17l2-3 2 2 2-3' },
-  { name: 'Watermark', blurb: 'Stamp text across every page.', icon: 'M12 3s6 7 6 11a6 6 0 0 1-12 0c0-4 6-11 6-11z' },
-  { name: 'Page numbers', blurb: 'Add numbering in the margin you choose.', icon: 'M6 3h12v18H6zM10 17h4M12 7v6' },
+  { name: 'Merge', href: '#/edit?tool=merge', blurb: 'Combine several PDFs into one file.', icon: 'M6 4v6a4 4 0 0 0 4 4h4M18 4v6a4 4 0 0 1-4 4M12 14v6' },
+  { name: 'Split', href: '#/edit?tool=extract', blurb: 'Pull pages or ranges into new files.', icon: 'M12 4v6M12 10l-6 10M12 10l6 10' },
+  { name: 'Organize', href: '#/edit?tool=organize', blurb: 'Reorder, delete and rotate pages.', icon: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z' },
+  { name: 'Rotate', href: '#/edit?tool=organize', blurb: 'Turn pages the right way up.', icon: 'M20 12a8 8 0 1 1-3-6.2M20 4v5h-5' },
+  { name: 'Image to PDF', href: '#/edit?tool=from-images', blurb: 'Turn JPG and PNG images into a PDF.', icon: 'M4 5h16v14H4zM4 16l5-5 4 4 2-2 5 5M15 9h.01' },
+  { name: 'PDF to image', href: '#/edit?tool=to-images', blurb: 'Export pages as crisp images.', icon: 'M6 3h8l4 4v14H6zM14 3v4h4M9 17l2-3 2 2 2-3' },
+  { name: 'Watermark', href: '#/edit?tool=watermark', blurb: 'Stamp text across every page.', icon: 'M12 3s6 7 6 11a6 6 0 0 1-12 0c0-4 6-11 6-11z' },
+  { name: 'Page numbers', href: '#/edit?tool=numbers', blurb: 'Add numbers at the center or bottom.', icon: 'M6 3h12v18H6zM10 17h4M12 7v6' },
 ]
 
 const promises = [
   { title: 'Never uploaded', body: 'A WebAssembly engine opens and processes your PDFs inside this browser tab. Your files go nowhere else.' },
-  { title: 'No account, no limits', body: 'No sign-up, no paywall, no daily quota, no watermark on what you export.' },
-  { title: 'No tracking', body: 'There are no analytics or third-party scripts, and your documents are never stored.' },
+  { title: 'No account, no quotas', body: 'No sign-up, no paywall, no daily quota, no automatic watermark. Browser and device memory limits still apply.' },
+  { title: 'No tracking', body: 'There are no analytics or third-party scripts. Working documents stay in memory; the browser stores only app files and your theme preference.' },
 ]
 
 const Icon = ({ d }: { d: string }) => <svg viewBox="0 0 24 24" aria-hidden="true"><path d={d} pathLength={1}/></svg>
@@ -56,7 +56,7 @@ export default function Home() {
         <p className="section-lede reveal">The ones you reach for every day, all running on your device.</p>
         <div className="tool-grid">
           {tools.map((tool, i) => {
-            const body = <><span className="tool-icon"><Icon d={tool.icon}/></span><strong>{tool.name}</strong><span className="tool-blurb">{tool.blurb}</span>{tool.href ? <span className="live">Live</span> : <span className="soon">Soon</span>}</>
+            const body = <><span className="tool-icon"><Icon d={tool.icon}/></span><strong>{tool.name}</strong><span className="tool-blurb">{tool.blurb}</span>{!tool.href && <span className="soon">Soon</span>}</>
             const style = { '--d': `${i * 40}ms` } as React.CSSProperties
             return tool.href
               ? <a key={tool.name} className="tool-card reveal" style={style} href={tool.href} onPointerMove={spotlight}>{body}</a>

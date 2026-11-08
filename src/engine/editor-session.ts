@@ -6,6 +6,7 @@ import type { Analysis } from './text-analysis'
 import { compileTextEdits } from './text-edit'
 import { compileObjects } from './added-objects'
 import { ImageAssets } from './image-assets'
+import { pdfFeatures } from './pdf-features'
 
 export class EditorSession {
   readonly source: Uint8Array<ArrayBuffer>
@@ -24,6 +25,7 @@ export class EditorSession {
     this.currentDoc = this.sourceDoc; this.bytes = this.source
   }
   get count() { return this.sourceDoc.countPages() }
+  features() { return pdfFeatures(this.sourceDoc) }
   bounds(index: number) { const page = this.sourceDoc.loadPage(index); try { return page.getBounds() } finally { page.destroy() } }
   private analysis(page: number): Analysis {
     const cached = this.cache.get(page)

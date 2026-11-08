@@ -109,3 +109,31 @@ and [PDFDocument resource/stream APIs](https://mupdf.readthedocs.io/en/latest/re
 were checked against official documentation and the installed declarations before use.
 Tests exercise real font/image resources, alpha graphics, page transforms and exports.
 Distribution licensing remains unchanged and unresolved; no project license was added.
+
+## Phase 4 additions
+
+The existing pinned MuPDF 1.28.1 binding also supports page graft maps, annotation/widget
+baking, image-to-PDF generation, searchable stamps and PNG/JPEG pixmap export. No
+additional engine or dependency was added. Official [PDFDocument baking and grafting](https://mupdf.readthedocs.io/en/latest/reference/javascript/types/PDFDocument.html)
+and [Pixmap encoding](https://mupdf.readthedocs.io/en/latest/reference/javascript/types/Pixmap.html)
+APIs were checked, then exercised against the installed binding. In particular, tests
+found the need to retain UserUnit and page Group explicitly during grafting. Missing
+interactive structures are handled by the stated flatten/copy policy; layered/XFA PDFs
+are rejected. Signature detection uses PDF object inspection, not certificate validation.
+
+The inline clipboard workflow follows the browser's [Clipboard read API](https://developer.mozilla.org/en-US/docs/Web/API/Clipboard/read)
+and [clipboardData events](https://developer.mozilla.org/en-US/docs/Web/API/ClipboardEvent/clipboardData),
+with native shortcut/file-input fallbacks. Distribution licensing remains unresolved;
+no project-wide license, deployment or dependency-version change was made.
+
+## Phase 5 additions
+
+No new runtime/build dependency or PDF engine was introduced. Offline caching is a
+small local service worker and build-manifest adapter. MuPDF remains pinned at 1.28.1.
+All application dependencies, including worker/WASM/font support, are self-hosted in
+the production output. JavaScript document actions remain disabled. Privacy fixtures
+exercise OpenAction, AA, document JavaScript, form submission/launch actions and links
+without calling network APIs during rendering, text replacement or page copying.
+The CSP permits WASM compilation specifically rather than general string evaluation.
+See Phase 5 verification and the offline README for actual checks and hosting headers.
+The unresolved AGPL/commercial distribution decision remains unchanged.

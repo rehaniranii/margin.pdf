@@ -1,6 +1,6 @@
 # Architecture and phase plan
 
-Phases 1–3 are implemented. Work remains local; no application service or database
+Phases 1–5 are implemented. Work remains local; no application service or database
 is used. MuPDF is the only PDF engine, with an unresolved owner licensing decision.
 
 ## Source boundaries
@@ -16,7 +16,7 @@ is used. MuPDF is the only PDF engine, with an unresolved owner licensing decisi
 | src/engine/mupdf-adapter.ts | Document opening, bounded raster rendering, retained Phase 1 proof |
 | src/geometry | Affine geometry, overlap/containment, actual-raster selection coordinates |
 | src/export | User-initiated local PDF download |
-| src/offline | Offline delivery explicitly deferred to Phase 5 |
+| src/offline | Verified application-only caching, lifecycle, readiness and job activity |
 | tests | PDF semantics, pixel preservation, geometry, history, worker lifecycle, fixtures |
 | scripts | Reproducible original Phase 1 engine proof |
 
@@ -111,21 +111,13 @@ on replacement/unmount, downloads after the browser begins saving. The rail disp
 at most seven page controls plus first/last jumps. History and source bytes remain in
 memory, with no persistence or artificial usage quota. Device limits still apply.
 
-## Remaining phases 4–6 — not started
-
-**Phase 4:** Page organization and utility/conversion jobs. Validate ranges; define and
-disclose forms/annotations/links/bookmarks and signature handling per operation.
-
-**Phase 5:** Versioned service-worker asset delivery including worker/WASM/fonts,
-readiness checks, safe update timing, CSP, disconnected production reload, and complete
-request/storage privacy audit. Document JavaScript remains disabled today; links are
-not activated and previews are engine-generated images.
+## Remaining phase 6 — not started
 
 **Phase 6:** Cross-reader and browser fixture matrix, larger/scanned/malformed documents,
 mobile hardware memory checks, offline edit/export, licensing/distribution review,
 and release assessment. No distribution license has been selected for this project.
 
-## Phase 3 extension (current)
+## Phase 3 extension
 
 Phases 1–3 are implemented. Existing text remains the default tool. `AddedObject` is
 an explicit union for text, image, highlight, rectangle and ink, each with stable ID,
@@ -182,4 +174,143 @@ source, current bytes, one text prefix, one recovery PDF, asset data, native ima
 and compact history coexist in memory. No document content is persisted in browser
 storage. The preexisting theme preference remains separate localStorage UI state.
 
-Remaining work starts at Phase 4. No page utilities/conversions, service worker or release verification were started.
+Phase 3 ended here. The following extension implements Phase 4; offline support and release verification remain deferred.
+
+
+## Phase 4 extension
+
+The primary text properties and on-page input now share one controlled `TextEdit`
+draft. Double-click (or keyboard Enter) opens a transient textarea at the source span.
+Native caret selection/clipboard operations act on the draft. Enter commits through
+the same verified removal/replacement pipeline, and Escape restores the baseline.
+Added text has an on-page draft with Ctrl/Cmd+Enter; failed glyph/fit validation keeps
+the draft visible. New pasted text can be corrected before its first PDF commit.
+Unapplied drafts block navigation/export. Pointer capture for dragging retargets native
+click events, so ObjectLayer recognizes stationary double taps for added-text editing
+while retaining captured move/resize gestures. Sidebar formatting remains optional.
+
+Clipboard handlers ignore native form fields and the utilities dialog. Selected source
+spans and added text support native copy; native text-field behavior remains intact.
+Pasted text replaces a selected supported span as a draft or creates an added-text
+draft. Paste/drop images use the existing decode guard, image asset model and object
+compiler; no document bytes are sent to a service. The clipboard button uses the
+browser's user-initiated Clipboard API and reports a shortcut/file-input fallback if
+access is unavailable. HTML clipboard data is never interpreted. The last page pointer
+is reset when a new document opens. Pending clipboard reads are discarded if the
+document, page, selection, draft, tool or job generation changes before they finish.
+
+`model/utilities.ts` defines immutable source identifiers, a page organization plan
+(`sourceId`, zero-based source page, additional quarter-turn rotation), stamp settings,
+and transferable artifacts. `utilities/page-ranges.ts` validates one-based interface
+ranges and preserves deliberate ordering without duplicates. `engine/pdf-features.ts`
+checks signature dictionaries/fields/certification references and feature flags on the
+worker; it does not validate certificates or claim proof of absence on inspection failure.
+
+`PdfUtilities` owns copies of registered input buffers in a separate dedicated worker.
+The editor engine remains alive and unchanged during utility jobs. Commands share the
+typed protocol/client but the utility worker has no editor session until needed. Access
+is serialized; inputs/results transfer ownership, while the editor's authoritative
+checkpoint is copied before registration. One graft map per source preserves resource
+sharing across interleaved page references. Worker teardown releases registered source
+buffers; native docs/maps/fonts/pixmaps/images are explicitly destroyed after jobs.
+
+For all PDF-to-PDF utilities, source annotations/widgets are baked into static page
+content, then selected pages/resources are grafted into a new document. UserUnit and
+page transparency Group are copied explicitly because the binding's default page-key
+list omits them. Intrinsic rotation is retained and additional rotations are combined.
+New catalogs omit links, bookmarks, attachments, document metadata, tags and labels.
+Optional-content and XFA documents are rejected. The interface explains interactivity
+loss and signature invalidation before generation; missing appearances and sanitization
+are outside the promise. Original files and editor source buffers are never mutated.
+
+Watermarks/numbers append searchable text in isolated page-space Forms, using inverse
+page transforms, measured fit and explicit font/color/opacity. Page-number sequence
+follows the selected page order. JPG/PNG conversion centers images proportionally on
+A4 or pixel-sized pages with a chosen margin. Page image exports render one page at a
+time with annotations/widgets, white backgrounds and the existing pixel/edge budget;
+actual dpi is returned even when lower than requested. Split and image exports use
+individual user-initiated downloads rather than buffering a document-wide bitmap batch.
+
+The modal previews the first page of the actual generated PDF. Download preserves the
+editor; Open result deliberately rebases into a new in-memory source/history, with a
+visible explanation beforehand. The utility plan/result can be discarded independently.
+Page transformations are not editor undo entries. Cancelling terminates only the utility
+worker, discards in-flight changes, releases added utility inputs and re-registers the
+current editor checkpoint. Generation tokens suppress stale replies. The original editor
+history and last downloadable bytes are untouched. Recovery re-registration can be
+retried by closing/reopening the panel. All state is memory-only.
+
+Homepage links open utility-specific hash routes with file selection; they do not seed
+merges with the sample. The existing homepage identity and theme are retained. Phase 4 stopped before offline delivery; the following extension implements Phase 5. No deployment was added.
+
+
+## Refresh protection follow-up
+
+The document remains memory-only. `model/export-state.ts` compares the current source
+identifier and edit/object plan against the last requested download. Render/recovery
+revisions and navigation do not count as content changes. Undo/redo back to a downloaded
+plan clears the unexported state; undoing away from it restores that state. Imported
+local sources start clean, while undownloaded generated utility sources start unexported.
+
+`useUnsavedChangesWarning` registers beforeunload only while an unapplied draft or
+unexported plan/result exists, and unregisters after export/discard. Utility results
+track download requests and pass that state when opened as new editor sources. The
+footer tells users to export before refreshing. This is a browser leave warning, not
+a recovery checkpoint: accepting the warning, crashes and some mobile force-closes
+still discard the session. No document storage, autosave, service worker or automatic
+recovery was introduced. Persistent local recovery needs an explicit opt-in.
+
+## Phase 5 extension (current)
+
+`offlineBuild` is a local Vite build plugin. It enumerates actual static output,
+including nested worker dependencies and WASM, computes byte sizes/SHA-256 hashes,
+and emits a versioned manifest, self-contained service worker, HTML meta CSP and
+static-host header rules. A per-build identifier links the UI to its installed worker;
+readiness for a different version is never advertised. No dependency or PDF engine was
+added. The configuration serves at `/` with hash routes and a dedicated origin.
+
+The service worker owns only `margin-pdf-app-*` caches. Installation fetches a fixed
+same-origin GET list sequentially with omitted credentials/referrers and no redirects,
+verifies every response, and removes a failed candidate cache. Readiness rehashes every
+required asset and rejects unexpected cache entries. Repair is serialized, re-fetches
+only the fixed list and removes unknown entries. Neither status nor activity messages
+include file names, bytes, text or edit state. Runtime requests cannot add cache entries:
+unknown/foreign URLs and non-GET methods return local errors without network fallback;
+navigation uses the cached HTML. Cache contents are application code/resources only.
+
+No skipWaiting or clients.claim is used. The initial page gets an explicit first-setup
+reload after verification, with existing unload warnings intact and reload disabled
+during jobs. Natural activation of an update waits for all old-version clients to close;
+only then are old owned caches deleted. The UI never calls location.reload automatically
+on controllerchange. This conservative policy also avoids taking over older, busy tabs
+that predate offline registration. Users see when an update is waiting and are asked to
+export before closing. No update activation message or force-update button is exposed.
+
+The delivery store verifies controller/version/cache readiness before Available offline,
+and rechecks on focus, visibility and connectivity changes. A missing/corrupt cache
+returns an explicit retry state. Service-worker registration/verification require HTTPS
+or localhost, subtle crypto, worker support and browser storage. Real eviction/quota
+behavior prevents promising permanent availability. Development mode skips registration
+and says offline delivery is disabled; production output was tested disconnected.
+
+`offline/activity.ts` counts queued/running document requests; completion, failure,
+cancellation and synchronous transfer failure release counts exactly once. UI busy
+lifetimes also cover file reads outside worker calls. Setup/repair controls remain
+unavailable during jobs. PDF worker state remains serialized separately from service-
+worker asset verification. Clear workspace terminates document workers, drops models,
+assets and recovery references, resets file inputs and triggers URL cleanup. Static
+caches and the theme preference remain; no document data is persisted by default.
+
+CSP is emitted in HTML and supplied as response headers by Vite preview. Static hosts
+must apply equivalent headers, including worker responses. Script strings/inline JS,
+forms, frames, object embedding and foreign resources are blocked; only self modules,
+workers, WASM compilation, local Blob images and positional inline styles are allowed.
+No analytics, ads, telemetry, session recording or remote error collection is present.
+The engine opens untrusted PDFs through disableJS and the UI never dispatches PDF links,
+Launch/SubmitForm actions or embedded scripts. Tests exercise malicious-action fixtures
+online/offline without linked requests, and inspect storage/caches for a private canary.
+This does not remove such actions from text-editing exports or sanitize a document.
+
+Remaining work is Phase 6 release verification. Offline caching delivers the app; it
+is not document autosave or local recovery. Licensing/distribution remains undecided,
+and no deployment or project-wide license assignment was performed.

@@ -1,5 +1,8 @@
 export function downloadPdf(bytes: ArrayBuffer, name: string) {
-  const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }))
+  downloadFile(bytes, name, 'application/pdf')
+}
+export function downloadFile(bytes: ArrayBuffer, name: string, type: string) {
+  const url = URL.createObjectURL(new Blob([bytes], { type }))
   const anchor = document.createElement('a')
   anchor.href = url
   anchor.download = name

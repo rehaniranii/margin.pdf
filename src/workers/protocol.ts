@@ -1,5 +1,10 @@
 import type { AddedObject, DocumentInfo, EditorView, ImageAssetInfo, ImageAssetInput, SessionCheckpoint, TextEdit } from '../model/document'
+import type { ImageExport, UtilityArtifact, UtilitySource, UtilitySpec } from '../model/utilities'
 export type Command =
+  | { type: 'tool-source'; id: string; kind: 'pdf' | 'image'; bytes: ArrayBuffer }
+  | { type: 'tool-release'; id: string }
+  | { type: 'tool-build'; spec: UtilitySpec }
+  | { type: 'tool-image'; sourceId: string; page: number; format: 'png' | 'jpeg'; dpi: number }
   | { type: 'open'; bytes: ArrayBuffer; width?: number; dpr?: number }
   | { type: 'sample'; width?: number; dpr?: number }
   | { type: 'view'; page: number; scale: number; dpr: number }
@@ -12,7 +17,7 @@ export type Command =
   | { type: 'undo' | 'redo'; page: number; scale: number; dpr: number }
   | { type: 'export' }
 export type OpenResult = { info: DocumentInfo; source: ArrayBuffer; view: EditorView; scale: number }
-export type Result = OpenResult | EditorView | ArrayBuffer | ImageAssetInfo | { released: true }
+export type Result = OpenResult | EditorView | ArrayBuffer | ImageAssetInfo | UtilitySource | UtilityArtifact | ImageExport | { released: true }
 export type Request = { id: number; command: Command }
 export type Response = { id: number; result?: Result; error?: string }
 export type Progress = { id: number; progress: string }
