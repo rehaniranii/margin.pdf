@@ -1,7 +1,7 @@
 # margin.pdf
 
 A free, standalone PDF workspace built with React, TypeScript, Vite, and a local
-MuPDF WebAssembly worker. **Phases 1–5 are implemented.** Existing-text editing
+MuPDF WebAssembly worker. **Phases 1–6 are implemented and locally verified.** Existing-text editing
 is the primary workflow. No backend, accounts, analytics, payments, usage quotas,
 or external runtime services are used. Nothing has been deployed.
 
@@ -45,6 +45,9 @@ npm test          # PDF output, geometry, history, worker lifecycle
 npm run proof     # original Phase 1 controlled before/after artifacts
 npm run build     # TypeScript check and static production build in dist/
 npm run preview   # serve the production build locally
+npm run release:fixtures # generate the release matrix and edited PDF/PNG artifacts
+npm run release:pdfkit   # optional independent macOS PDFKit checks (Swift required)
+npm run release:licenses # verify locked dependency metadata and runtime license copies
 ```
 
 The static build includes its worker and approximately 10.4 MB WASM engine. First
@@ -109,7 +112,8 @@ available until that history branch is discarded.
 Zoom supports 10–400%, width/page fitting, and preservation of the viewed area.
 Pan drags the page; holding Space temporarily pans outside text inputs. Use the page
 number field or PageUp/PageDown for navigation. Page ranges and zoom values are
-validated. Touch hardware and broad browser testing remain release-verification work.
+validated. Chromium desktop and small-screen layouts were exercised; physical touch/pen
+hardware and other browser engines remain unverified.
 
 **Cancel operation** terminates the active worker and restores the last applied PDF,
 edit history, and referenced image assets from memory. The visible workspace stays
@@ -123,7 +127,7 @@ object handles or session history. Exported transparent graphics can also trigge
 existing-text editor’s conservative complex-appearance checks on reopening; the
 current working session keeps its editable source references. Added text remains searchable; images and drawings
 remain visual page content. There is no object rotation, image cropping, layer/reorder
-panel, rich typography, or pressure-sensitive ink in this phase. Ink strokes resize as
+panel, rich typography, or pressure-sensitive ink. Ink strokes resize as
 paths with a fixed line width; they are individually selected/deleted. No signature
 certificate, identity, or tamper-evidence validation is provided.
 
@@ -202,8 +206,8 @@ assets and local Blob URLs during the tested workflows.
 On the first visit, wait for verification, export any work, then use Reload to enable
 offline. “Available offline” appears only after the controlling service worker verifies
 every required file for this build. This caches the application, not your documents;
-unsaved edits still disappear after a confirmed refresh or crash. Broad release
-verification remains Phase 6; this is not a release-readiness claim.
+unsaved edits still disappear after a confirmed refresh or crash. Production offline
+reload, editing and export passed the Phase 6 checks described below.
 
 Rendering has an 8-million-pixel budget and bounded dimensions/DPR. Source snapshots,
 compiled recovery bytes, image assets, engine state, and edit-plan history coexist in memory; very large or
@@ -221,6 +225,24 @@ See [architecture](docs/ARCHITECTURE.md), [Phase 4 verification](docs/PHASE4-VER
 [Phase 2 verification](docs/PHASE2-VERIFICATION.md),
 [historical Phase 1 verification](docs/VERIFICATION.md), and
 [engine/licensing decision](docs/ENGINE-DECISION.md).
+
+## Release readiness
+
+This is a locally runnable **release candidate for the documented supported subset**.
+The production build, 83 automated tests, real Chromium workflows, disconnected
+reload/edit/export, phone/tablet layouts, and independent PDFKit reading/rendering
+were checked. The release fixtures include scans, embedded subset fonts, annotations,
+forms, synthetic signature dictionaries, all quarter-turn page rotations with crops,
+250-page documents and an oversized page. See [Phase 6 verification and reproduction
+steps](docs/PHASE6-VERIFICATION.md) for evidence and its limits.
+
+This is not a broad-browser or unrestricted-PDF compatibility claim. Real mobile
+hardware, very large image-heavy files, genuinely signed certificates, password entry,
+complex scripts, OCR, and automatic document recovery remain outside the verified
+release. Working documents still stay in memory by default; **export before leaving**.
+Distribution remains blocked on the owner's AGPL/commercial licensing decision and
+the associated source/notice requirements. No deployment or project-wide license
+assignment was performed.
 
 ## Offline application delivery and privacy
 

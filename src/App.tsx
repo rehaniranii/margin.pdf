@@ -70,14 +70,14 @@ export default function App() {
   clipboardContext.current = JSON.stringify([document?.source.id,page,tool,selection,objectSelection,dirty,view?.revision,utilitiesOpen])
 
   useEffect(() => {
-    client.current = new PdfWorkerClient(setBusy)
     const requested=requestedUtility.current;requestedUtility.current=null
     if(requested&&['organize','merge','extract','from-images','to-images','watermark','numbers'].includes(requested)){setInitialUtility(requested as UtilityTab);setUtilitiesOpen(true);setBusy('')}else void loadSample()
     return () => { generation.current++; client.current?.dispose() }
   }, [])
 
   async function run(action: (worker: PdfWorkerClient, token: number) => Promise<void>, label: string) {
-    if (!client.current || inFlight.current) return
+    if (inFlight.current) return
+    client.current ??= new PdfWorkerClient(setBusy)
     inFlight.current = true
     const token = ++generation.current
     setBusy(label); setError(''); setNotice('')
@@ -288,9 +288,10 @@ export default function App() {
   async function recover() {
     const saved = checkpoint.current
     generation.current++; inFlight.current = true; setRecovering(true)
-    client.current?.dispose(); client.current = new PdfWorkerClient(setBusy)
+    client.current?.dispose(); client.current = null
     setPendingImage(undefined); setSpacePan(false)
     if (!saved || !document) { inFlight.current = false; setRecovering(false); setBusy(''); setNotice('Operation cancelled. Open a PDF to begin.'); return }
+    client.current = new PdfWorkerClient(setBusy)
     const token = generation.current
     setBusy('Restoring last applied changes…'); setError('')
     try {
@@ -326,7 +327,7 @@ export default function App() {
 
   function clear() {
     generation.current++; inFlight.current = false
-    client.current?.dispose(); client.current = new PdfWorkerClient(setBusy)
+    client.current?.dispose(); client.current = null
     checkpoint.current = undefined; assetFiles.current.clear(); setObjectSelection(undefined); setPendingImage(undefined); setTool('edit'); setRecovering(false); setNotice('');
     if(input.current)input.current.value=''
     if(imageInput.current)imageInput.current.value=''
@@ -389,7 +390,7 @@ export default function App() {
     return()=>{window.removeEventListener('copy',copy);window.removeEventListener('paste',paste)}
   },[utilitiesOpen,view,busy,dirty,page,zoom,selection,objectSelection,tool])
   let inlineDraft:InlineDraft|undefined
-  if(inlineSource&&selected&&draftText)inlineDraft={...draftText,bounds:selected.bounds,multiline:false}
+  if(inlineSource&&selected&&draftText)inlineDraft={...draftText,bounds:selected.bounds,direction:selected.direction,multiline:false}
   else if(inlineAdded)inlineDraft={...inlineAdded,bounds:[inlineAdded.box.x,inlineAdded.box.y,inlineAdded.box.x+inlineAdded.box.width,inlineAdded.box.y+inlineAdded.box.height],multiline:true}
   function updateInline(value:string){if(inlineSource&&draftText)changeText({...draftText,text:value});else if(inlineAdded){setInlineAdded({...inlineAdded,text:value});setDirty(selectedObject?.kind!=='text'||value!==selectedObject.text)}}
   function applyInline(){if(inlineSource&&draftText)void applyEdit(draftText);else if(inlineAdded)void putObject(inlineAdded)}

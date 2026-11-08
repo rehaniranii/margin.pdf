@@ -1,6 +1,6 @@
 # Architecture and phase plan
 
-Phases 1–5 are implemented. Work remains local; no application service or database
+Phases 1–6 are implemented and locally checked. Work remains local; no application service or database
 is used. MuPDF is the only PDF engine, with an unresolved owner licensing decision.
 
 ## Source boundaries
@@ -18,7 +18,7 @@ is used. MuPDF is the only PDF engine, with an unresolved owner licensing decisi
 | src/export | User-initiated local PDF download |
 | src/offline | Verified application-only caching, lifecycle, readiness and job activity |
 | tests | PDF semantics, pixel preservation, geometry, history, worker lifecycle, fixtures |
-| scripts | Reproducible original Phase 1 engine proof |
+| scripts | Engine proof, offline build generation, release fixtures and independent-reader checks |
 
 ## Document model and worker ownership
 
@@ -111,11 +111,12 @@ on replacement/unmount, downloads after the browser begins saving. The rail disp
 at most seven page controls plus first/last jumps. History and source bytes remain in
 memory, with no persistence or artificial usage quota. Device limits still apply.
 
-## Remaining phase 6 — not started
+## Phase 6 scope — completed locally
 
-**Phase 6:** Cross-reader and browser fixture matrix, larger/scanned/malformed documents,
-mobile hardware memory checks, offline edit/export, licensing/distribution review,
-and release assessment. No distribution license has been selected for this project.
+Cross-reader/browser fixtures, scanned and larger documents, small-screen viewport
+checks, offline edit/export, dependency inventory and release assessment are recorded
+in the Phase 6 extension below. Physical mobile hardware and broad malformed-file
+testing remain unverified. No distribution license has been selected for this project.
 
 ## Phase 3 extension
 
@@ -260,7 +261,7 @@ a recovery checkpoint: accepting the warning, crashes and some mobile force-clos
 still discard the session. No document storage, autosave, service worker or automatic
 recovery was introduced. Persistent local recovery needs an explicit opt-in.
 
-## Phase 5 extension (current)
+## Phase 5 extension
 
 `offlineBuild` is a local Vite build plugin. It enumerates actual static output,
 including nested worker dependencies and WASM, computes byte sizes/SHA-256 hashes,
@@ -311,6 +312,26 @@ Launch/SubmitForm actions or embedded scripts. Tests exercise malicious-action f
 online/offline without linked requests, and inspect storage/caches for a private canary.
 This does not remove such actions from text-editing exports or sanitize a document.
 
-Remaining work is Phase 6 release verification. Offline caching delivers the app; it
-is not document autosave or local recovery. Licensing/distribution remains undecided,
-and no deployment or project-wide license assignment was performed.
+## Phase 6 verification and corrections (current)
+
+The release matrix in `scripts/release/fixtures.ts` is shared by structural/pixel tests
+and the reproducible browser fixture generator. It covers source text, embedded subset
+fonts, scans, cropped/rotated/UserUnit pages, annotations, form appearances, synthetic
+signature detection, overlap restrictions, skewed text, 250 pages and oversized page
+dimensions. Candidate exports are compared with their committed previews, and pixels
+outside the selected source slot remain unchanged. A separate, optional macOS PDFKit
+script opens, extracts and renders exports without MuPDF.
+
+Browser verification found and corrected three issues: inline text inputs now follow
+the source region's transformed baseline, bounded rendering reserves outward rounding
+pixels, and Clear workspace no longer starts another idle WASM worker. Worker creation
+is lazy on the next editor job; direct utility entry does not allocate an unused editor
+worker. Recovery still creates a worker when restoring an actual checkpoint.
+
+Production Chromium checks exercise source edit/export/reopen, native clipboard text
+and image paste, added text, offline reload/edit/export and numbering, narrow layouts,
+windowed large-document navigation, storage/network behavior and worker termination.
+See `docs/PHASE6-VERIFICATION.md` for the checks actually performed and reproducible
+commands. Cross-browser/device coverage and arbitrary-PDF compatibility remain limited.
+Offline caching delivers the app; it is not document autosave or local recovery.
+Licensing/distribution remains undecided. No deployment or project license was assigned.

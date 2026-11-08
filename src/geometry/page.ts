@@ -8,7 +8,11 @@ export function boundedScale(bounds: Rect, requestedScale: number, dpr = 1): num
   if (![...bounds, requestedScale, dpr].every(Number.isFinite) || width <= 0 || height <= 0 || requestedScale <= 0 || dpr <= 0) {
     throw new Error('This page has invalid dimensions.')
   }
-  return Math.min(requestedScale * Math.min(dpr, 2), 3, 4096 / width, 4096 / height, Math.sqrt(8_000_000 / (width * height)))
+  // Rasterization rounds each edge outwards. Reserve two pixels per dimension
+  // so a fractional/nonzero page origin cannot exceed the allocation budget.
+  const sum = width + height
+  const pixelScale = (8_000_000 - 4) / (Math.sqrt(sum * sum + width * height * (8_000_000 - 4)) + sum)
+  return Math.min(requestedScale * Math.min(dpr, 2), 3, 4094 / width, 4094 / height, pixelScale)
 }
 
 export function pointToDisplay(x: number, y: number, bounds: Rect, scale: number) {

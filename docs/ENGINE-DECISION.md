@@ -73,9 +73,11 @@ Direct dependency metadata reviewed:
 | @types/node | 26.6.6 | MIT | Development types |
 | @types/react / react-dom | 19.3.0 | MIT | Development types |
 
-The lockfile pins transitive dependencies. This phase's review establishes the
-engine decision; a complete transitive notice and distribution audit remains part
-of release verification. No additional PDF library or downloaded font is included.
+The lockfile pins transitive dependencies. Phase 6 inventories every locked npm
+package and verifies the four runtime license copies against installed packages.
+No additional PDF library or downloaded font is included. The distribution route,
+corresponding-source delivery and MuPDF's bundled-component notice obligations still
+require resolution before distribution; an npm metadata inventory is not legal clearance.
 
 ## Phase 2 capability extension
 
@@ -137,3 +139,22 @@ without calling network APIs during rendering, text replacement or page copying.
 The CSP permits WASM compilation specifically rather than general string evaluation.
 See Phase 5 verification and the offline README for actual checks and hosting headers.
 The unresolved AGPL/commercial distribution decision remains unchanged.
+
+## Phase 6 dependency review
+
+`npm run release:licenses` records the lockfile hash, all 98 locked package entries
+(including optional platform packages), their declared licenses and development/runtime
+status in `output/phase6/dependency-inventory.json`. No entry has missing license metadata.
+Counts: 61 MIT, 22 Apache-2.0, 12 MPL-2.0, one ISC, one BSD-3-Clause and one
+AGPL-3.0-or-later. The only npm runtime packages are MuPDF, React, React DOM and Scheduler;
+their preserved public license texts match the installed package files byte for byte.
+Other entries are development/build dependencies. Vite's preserved license includes
+its upstream notices for bundled helpers. No dependencies were added in this phase.
+
+MuPDF remains pinned at 1.28.1; the latest online documentation may describe a newer
+release, so installed declarations and executable fixtures are used to confirm behavior.
+[Artifex's official licensing guidance](https://artifex.com/licensing) was rechecked on
+2026-11-08. It continues to describe AGPL and commercial routes. The owner must choose
+a route and meet its applicable source, notice and bundled-component obligations
+before distributing this app/WASM. No commercial license, application license or
+distribution authorization is inferred from this local verification work.

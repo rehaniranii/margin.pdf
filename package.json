@@ -8,7 +8,11 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "test": "node --import tsx --test tests/*.test.ts",
-    "proof": "node --import tsx scripts/proof.ts"
+    "proof": "node --import tsx scripts/proof.ts",
+    "release:fixtures": "node --import tsx scripts/release/generate.ts",
+    "release:pdfkit": "node --import tsx scripts/release/pdfkit.ts",
+    "release:licenses": "node --import tsx scripts/release/licenses.ts",
+    "release:browser-output": "node --import tsx scripts/release/verify-browser.ts"
   },
   "dependencies": {
     "mupdf": "1.28.1",
