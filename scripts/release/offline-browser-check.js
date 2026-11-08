@@ -9,6 +9,7 @@ async page => {
  try{
   await page.reload()
   await page.getByText('Available offline',{exact:true}).waitFor()
+  await page.locator('input[type=file][accept="application/pdf,.pdf"]').setInputFiles('output/phase6/fixtures/digital.pdf')
   await page.getByRole('img',{name:'PDF page 1',exact:true}).waitFor()
   await page.setViewportSize({width:390,height:844})
   await page.getByRole('button',{name:'Fit whole page',exact:true}).click()
@@ -50,7 +51,7 @@ async page => {
    for(const key of cacheKeys){const cache=await caches.open(key);cached.push(...(await cache.keys()).map(request=>request.url))}
    return {databases:await indexedDB.databases(),localKeys:Object.keys(localStorage),sessionKeys:Object.keys(sessionStorage),cached}
   })
-  check(storage.databases.length===0&&storage.sessionKeys.length===0&&storage.localKeys.every(key=>key==='theme'),'Documents must not enter persistent browser storage')
+  check(storage.databases.length===0&&storage.sessionKeys.length===0&&storage.localKeys.length===0,'Documents must not enter persistent browser storage')
   check(storage.cached.every(url=>!url.includes('digital.pdf')&&!url.includes('Offline%20edit')),'Document data entered an app cache')
   const staticUrls=new Set([...storage.cached,`${origin}/`,`${origin}/sw.js`])
   check(requests.every(request=>request.method==='GET'&&request.bytes===0&&(request.url.startsWith('blob:')||staticUrls.has(request.url.split('#')[0]))),'Unexpected processing network request')

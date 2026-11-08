@@ -1,6 +1,8 @@
 // Final production open -> keyboard edit -> undo/redo -> export -> reopen check.
 async page => {
- await page.getByRole('button',{name:'Clear workspace',exact:true}).click()
+ // The editor starts empty; close a document only if one is open.
+ const clear=page.getByRole('button',{name:'Clear workspace',exact:true})
+ if(await clear.count())await clear.click()
  await page.getByText('Your document belongs here.',{exact:true}).waitFor()
  const source=page.locator('input[type=file][accept="application/pdf,.pdf"]')
  await source.setInputFiles('output/phase6/fixtures/digital.pdf')

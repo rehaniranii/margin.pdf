@@ -116,3 +116,16 @@ test('table cells separated by borders are not merged into one line or paragraph
  const view=regions(exported(`${grid} ${cell(80,400,'North')} ${cell(130,400,'1,200')} ${cell(80,385,'South')} ${cell(130,385,'980')}`))
  assert.deepEqual(view.regions.map(r=>r.text).sort(),['1,200','980','North','South'])
 })
+
+test('page-list thumbnails render any page small, including applied edits',async()=>{
+ const {EditorSession}=await import('../src/engine/editor-session')
+ const bytes=exported(line),session=new EditorSession(bytes)
+ try{
+  const before=session.thumbnail(0,100);assert.equal(before.width,100)
+  const region=session.view(0,1,1).text.regions.find(r=>r.text==='Editable line')!
+  session.apply({type:'replace-text',page:0,regionId:region.id,text:'Changed',font:'Helvetica',size:20,color:'#000000'},1,1)
+  const after=session.thumbnail(0,100)
+  assert.notDeepEqual(new Uint8Array(after.png),new Uint8Array(before.png),'thumbnail must show the edited page')
+  assert.throws(()=>session.thumbnail(5,100),/existing page/)
+ }finally{session.dispose()}
+})

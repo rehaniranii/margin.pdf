@@ -173,7 +173,7 @@ page jumps, PageUp/PageDown, Pan and temporary Space-pan extend navigation. Rend
 retains its previous raster limits; 400% CSS zoom can magnify a capped raster. Working
 source, current bytes, one text prefix, one recovery PDF, asset data, native image handles,
 and compact history coexist in memory. No document content is persisted in browser
-storage. The preexisting theme preference remains separate localStorage UI state.
+storage, and the app writes nothing to localStorage.
 
 Phase 3 ended here. The following extension implements Phase 4; offline support and release verification remain deferred.
 
@@ -300,7 +300,7 @@ lifetimes also cover file reads outside worker calls. Setup/repair controls rema
 unavailable during jobs. PDF worker state remains serialized separately from service-
 worker asset verification. Clear workspace terminates document workers, drops models,
 assets and recovery references, resets file inputs and triggers URL cleanup. Static
-caches and the theme preference remain; no document data is persisted by default.
+caches remain; no document data is persisted by default.
 
 CSP is emitted in HTML and supplied as response headers by Vite preview. Static hosts
 must apply equivalent headers, including worker responses. Script strings/inline JS,

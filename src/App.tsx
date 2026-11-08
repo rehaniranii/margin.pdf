@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { PdfWorkerClient } from './workers/client'
 import type { OpenResult } from './workers/protocol'
-import type { AddedObject, AddedText, EditorTool, EditorView, ImageAssetInfo, ObjectBox, Point, SessionCheckpoint, TextEdit, TextRegion, WorkingDocument } from './model/document'
+import type { AddedObject, AddedText, EditorTool, EditorView, ImageAssetInfo, ObjectBox, Point, RenderedPage, SessionCheckpoint, TextEdit, TextRegion, WorkingDocument } from './model/document'
 import type { PdfFeatures } from './model/utilities'
 import { textDraft } from './model/text-draft'
 import { UtilityPanel } from './components/UtilityPanel'
@@ -11,7 +11,6 @@ import { PagePreview } from './components/PagePreview'
 import { PageRail } from './components/PageRail'
 import { TextProperties } from './components/TextProperties'
 import { downloadPdf } from './export/download'
-import { ThemeToggle } from './theme'
 import { takeHandOff } from './handoff'
 import { ToolBar } from './components/ToolBar'
 import { ObjectProperties } from './components/ObjectProperties'
@@ -61,6 +60,49 @@ export default function App() {
   const [zoomInput, setZoomInput] = useState('90')
   const [utilitiesOpen,setUtilitiesOpen] = useState(false)
   const [features,setFeatures] = useState<PdfFeatures>()
+  // Page-list thumbnails, fetched one at a time so they never delay real work. A new document
+  // clears them; an edit, undo or redo re-renders only pages whose edits or added items changed,
+  // keeping the old preview on screen until the new one is ready.
+  const [thumbs,setThumbs] = useState<Record<number,string>>({})
+  const thumbsRef = useRef(thumbs); thumbsRef.current = thumbs
+  const thumbQueue = useRef<number[]>([])
+  const thumbRunning = useRef(false)
+  const thumbStamp = useRef<Record<number,number>>({})
+  const pageSignatures = useRef<Record<number,string>>({})
+  const docId = document?.source.id
+  const docIdRef = useRef(docId)
+  useEffect(() => { docIdRef.current = docId; thumbQueue.current = []; thumbStamp.current = {}; pageSignatures.current = {}; setThumbs(old => { Object.values(old).forEach(URL.revokeObjectURL); return {} }) }, [docId])
+  useEffect(() => () => { Object.values(thumbsRef.current).forEach(URL.revokeObjectURL) }, [])
+  useEffect(() => {
+    if (!view) return
+    const next: Record<number,string> = {}
+    for (const item of [...view.edits, ...view.objects]) next[item.page] = (next[item.page] ?? '') + JSON.stringify(item)
+    const changed = [...new Set([...Object.keys(next), ...Object.keys(pageSignatures.current)].map(Number))].filter(index => next[index] !== pageSignatures.current[index])
+    pageSignatures.current = next
+    for (const index of changed) {
+      thumbStamp.current[index] = (thumbStamp.current[index] ?? 0) + 1
+      if (thumbsRef.current[index] && !thumbQueue.current.includes(index)) thumbQueue.current.unshift(index)
+    }
+    if (changed.length) void pumpThumbs()
+  }, [view?.revision, docId])
+  async function pumpThumbs() {
+    if (thumbRunning.current) return
+    thumbRunning.current = true
+    try {
+      while (thumbQueue.current.length && client.current) {
+        const page = thumbQueue.current.shift()!, doc = docIdRef.current, stamp = thumbStamp.current[page] ?? 0
+        try {
+          const image = await client.current.request<RenderedPage>({ type: 'thumbnail', page, width: 200 })
+          // Discard if the document was replaced or this page changed again meanwhile (it is queued again).
+          if (doc !== docIdRef.current) continue
+          if (stamp !== (thumbStamp.current[page] ?? 0)) { if (!thumbQueue.current.includes(page)) thumbQueue.current.push(page); continue }
+          const url = URL.createObjectURL(new Blob([image.png], { type: 'image/png' }))
+          setThumbs(old => { if (old[page]) URL.revokeObjectURL(old[page]); return { ...old, [page]: url } })
+        } catch { /* a cleared or replaced document */ }
+      }
+    } finally { thumbRunning.current = false }
+  }
+  function needThumb(page: number) { if (!document || thumbQueue.current.includes(page)) return; thumbQueue.current.push(page); void pumpThumbs() }
   const [draftText,setDraftText] = useState<TextEdit>()
   const [inlineSource,setInlineSource] = useState(false)
   const [inlineAdded,setInlineAdded] = useState<AddedText>()
@@ -74,7 +116,7 @@ export default function App() {
     const requested=requestedUtility.current;requestedUtility.current=null
     const handed=takeHandOff()
     if(handed)void openFile(handed.file,handed.hasLocalCopy)
-    else if(requested&&['organize','merge','extract','from-images','to-images','watermark','numbers','compress','redact'].includes(requested)){setInitialUtility(requested as UtilityTab);setUtilitiesOpen(true);setBusy('')}else void loadSample()
+    else if(requested&&['organize','merge','extract','from-images','to-images','watermark','numbers','compress','redact'].includes(requested)){setInitialUtility(requested as UtilityTab);setUtilitiesOpen(true);setBusy('')}else setBusy('')
     return () => { generation.current++; client.current?.dispose() }
   }, [])
 
@@ -116,11 +158,6 @@ export default function App() {
   }
 
   const openingOptions = () => ({ width: (preview.current?.clientWidth ?? 700) - 60, dpr: window.devicePixelRatio })
-  async function loadSample() {
-    if (dirty) { setError('Apply or discard your text changes before opening another document.'); return }
-    await run(async (worker, token) => acceptOpen(token, await worker.request<OpenResult>({ type: 'sample', ...openingOptions() }), 'A little room to edit.pdf', 'sample'), 'Generating sample…')
-  }
-
   async function openFile(file?: File, hasLocalCopy = true) {
     if (!file) return
     await run(async (worker, token) => {
@@ -402,14 +439,14 @@ export default function App() {
   return <div className="app-shell">
     <header className="app-header">
       <a href="./" className="brand" aria-label="margin.pdf home"><span className="brand-mark" aria-hidden="true"/>margin<span className="brand-extension">.pdf</span></a>
-      <div className="document-identity"><strong title={document?.source.name}>{document?.source.name ?? 'No document open'}</strong>{document?.source.kind === 'sample' && <span className="sample-badge">Sample</span>}{document && document.edits.length + document.objects.length > 0 && <span className="edited-badge">{document.edits.length + document.objects.length} {document.edits.length + document.objects.length === 1 ? 'change' : 'changes'}</span>}{(document||busy)&&<button className="icon-button" aria-label="Clear workspace" title={busy?"Cancel and close document":"Close document"} onClick={clear}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>}</div>
-      <div className="header-actions"><div className="history-actions"><button aria-label="Undo document change" title="Undo (Ctrl/Cmd+Z)" disabled={!!busy || !view?.canUndo || dirty} onClick={() => history('undo')}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button><button aria-label="Redo document change" title="Redo (Ctrl/Cmd+Shift+Z)" disabled={!!busy || !view?.canRedo || dirty} onClick={() => history('redo')}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 14 5-5-5-5M20 9H10a6 6 0 0 0 0 12h3"/></svg></button></div><ThemeToggle/><button className="secondary" onClick={() => input.current?.click()} disabled={!!busy || dirty}><span aria-hidden="true">↥</span> Open PDF</button><button className="primary" disabled={!document || !!busy || dirty} onClick={exportPdf} title={dirty ? 'Apply or discard text changes before export' : 'Download the PDF shown in the preview'}>Export PDF <span aria-hidden="true">↓</span></button></div>
+      <div className="document-identity"><strong title={document?.source.name}>{document?.source.name ?? 'No document open'}</strong>{document && document.edits.length + document.objects.length > 0 && <span className="edited-badge">{document.edits.length + document.objects.length} {document.edits.length + document.objects.length === 1 ? 'change' : 'changes'}</span>}{(document||busy)&&<button className="icon-button" aria-label="Clear workspace" title={busy?"Cancel and close document":"Close document"} onClick={clear}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>}</div>
+      <div className="header-actions"><div className="history-actions"><button aria-label="Undo document change" title="Undo (Ctrl/Cmd+Z)" disabled={!!busy || !view?.canUndo || dirty} onClick={() => history('undo')}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button><button aria-label="Redo document change" title="Redo (Ctrl/Cmd+Shift+Z)" disabled={!!busy || !view?.canRedo || dirty} onClick={() => history('redo')}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 14 5-5-5-5M20 9H10a6 6 0 0 0 0 12h3"/></svg></button></div><button className="secondary" onClick={() => input.current?.click()} disabled={!!busy || dirty}><span aria-hidden="true">↥</span> Open PDF</button><button className="primary" disabled={!document || !!busy || dirty} onClick={exportPdf} title={dirty ? 'Apply or discard text changes before export' : 'Download the PDF shown in the preview'}>Export PDF <span aria-hidden="true">↓</span></button></div>
       <input ref={imageInput} type="file" accept="image/png,image/jpeg,.jpg,.jpeg,.png" hidden onChange={event => { void importImage(event.target.files?.[0]); event.target.value = '' }}/><input ref={input} type="file" accept="application/pdf,.pdf" hidden onChange={event => { void openFile(event.target.files?.[0]); event.target.value = '' }}/>
     </header>
     <div className="workspace-tools"><ToolBar tool={tool} busy={!!busy || !document} onChoose={chooseTool}/><label className="regions-toggle" title="Outline every piece of text that can be edited"><input type="checkbox" checked={showRegions} onChange={event => setShowRegions(event.target.checked)}/> Show editable text</label><div className="viewer-controls"><button aria-label="Zoom out" disabled={!document || !!busy || zoom <= 0.1} onClick={() => navigate(page, Math.max(0.1, zoom - 0.1))}>−</button><form className="zoom-form" onSubmit={event => {event.preventDefault();const value=Number(zoomInput);if (!Number.isFinite(value)||value<10||value>400) setError('Enter zoom from 10% to 400%.');else void navigate(page,value/100)}}><input aria-label="Zoom percent" inputMode="numeric" value={zoomInput} onChange={event=>setZoomInput(event.target.value)} disabled={!!busy || !document}/><span>%</span><button className="visually-hidden" type="submit">Apply zoom</button></form><button aria-label="Zoom in" disabled={!document || !!busy || zoom >= 4} onClick={() => navigate(page, Math.min(4, zoom + 0.1))}>+</button><button className="fit-button" aria-label="Fit page width" disabled={!document || !!busy} onClick={fitPage}>Width</button><button className="fit-button" aria-label="Fit whole page" disabled={!document || !!busy} onClick={fitWholePage}>Page</button><span className="toolbar-divider"/><button aria-label="Previous page" disabled={!document || !!busy || page === 0} onClick={() => navigate(page - 1)}>‹</button><form className="page-jump" onSubmit={event=>{event.preventDefault();const value=Number(pageInput);if (!Number.isInteger(value)||value<1||value>(document?.pages.length??0)) setError(`Enter a page from 1 to ${document?.pages.length??0}.`);else void navigate(value-1)}}><input aria-label="Go to page number" inputMode="numeric" value={pageInput} onChange={event=>setPageInput(event.target.value)} disabled={!document || !!busy}/><span>/ {document?.pages.length??0}</span><button className="visually-hidden" type="submit">Go to page</button></form><button aria-label="Next page" disabled={!document || !!busy || page + 1 >= document.pages.length} onClick={() => navigate(page + 1)}>›</button></div><div className="clipboard-tools"><button disabled={!!busy||dirty||!document} onClick={pasteFromClipboard} title="Paste text or an image (Ctrl/Cmd+V)">Paste</button>{selected&&<button disabled={!!busy} onClick={()=>{if(!navigator.clipboard?.writeText){setError('Use Ctrl/Cmd+C to copy the selected text.');return}void navigator.clipboard.writeText(applied?.text??selected.text).catch(()=>setError('Use Ctrl/Cmd+C to copy the selected text.'))}}>Copy text</button>}<button onClick={openTools} disabled={!!busy||dirty}>Page tools</button></div></div>
     <main className="workspace">
-      <PageRail count={document?.pages.length ?? 0} active={page} image={view?.image} busy={!!busy} onSelect={navigate}/>
-      <section ref={preview} className="document-area" aria-label="PDF preview" onPointerMove={event=>{const paper=preview.current?.querySelector<HTMLElement>('.page-paper');if(paper&&view&&paper.contains(event.target as Node))lastPointer.current=pointerToPage([event.clientX,event.clientY],paper.getBoundingClientRect(),view.image)}} onDragOver={event=>{if(event.dataTransfer.types.includes('Files')){event.preventDefault();event.dataTransfer.dropEffect=busy||dirty?'none':'copy'}}} onDrop={event=>{event.preventDefault();if(busy||dirty){setError('Apply or cancel your draft before dropping an image.');return}const file=Array.from(event.dataTransfer.files).find(file=>file.type==='image/png'||file.type==='image/jpeg');if(!file){setError('Drop a JPG or PNG image onto the page. Use Open PDF for documents.');return}const paper=preview.current?.querySelector<HTMLElement>('.page-paper'),point=paper&&view?pointerToPage([event.clientX,event.clientY],paper.getBoundingClientRect(),view.image):undefined;replacingImage.current=undefined;void importImage(file,true,point)}}>
+      <PageRail count={document?.pages.length ?? 0} active={page} image={view?.image} thumbs={thumbs} busy={!!busy} onSelect={navigate} onNeedThumb={needThumb}/>
+      <section ref={preview} className="document-area" aria-label="PDF preview" onPointerMove={event=>{const paper=preview.current?.querySelector<HTMLElement>('.page-paper');if(paper&&view&&paper.contains(event.target as Node))lastPointer.current=pointerToPage([event.clientX,event.clientY],paper.getBoundingClientRect(),view.image)}} onDragOver={event=>{if(event.dataTransfer.types.includes('Files')){event.preventDefault();event.dataTransfer.dropEffect=busy||dirty?'none':'copy'}}} onDrop={event=>{event.preventDefault();if(busy||dirty){setError('Apply or cancel your draft before dropping a file.');return}const pdf=Array.from(event.dataTransfer.files).find(file=>file.type==='application/pdf'||/\.pdf$/i.test(file.name));if(pdf){void openFile(pdf);return}const file=Array.from(event.dataTransfer.files).find(file=>file.type==='image/png'||file.type==='image/jpeg');if(!file){setError(document?'Drop a PDF to open it, or a JPG or PNG to place it on the page.':'Drop a PDF to open it.');return}const paper=preview.current?.querySelector<HTMLElement>('.page-paper'),point=paper&&view?pointerToPage([event.clientX,event.clientY],paper.getBoundingClientRect(),view.image):undefined;replacingImage.current=undefined;void importImage(file,true,point)}}>
         {busy && <div className="job-progress" role="status"><progress aria-label="Document processing"/><span>{busy}</span><button disabled={recovering} onClick={recover}>{recovering ? 'Restoring…' : 'Cancel operation'}</button></div>}
         {notice && <div className="notice-banner" role="status">{notice}</div>}
         {features?.signed&&<div className="notice-banner">Digital signature detected. Editing and page transformations may invalidate it. This editor does not verify certificates; save the original separately.</div>}
@@ -417,7 +454,7 @@ export default function App() {
         {error && <div className="error-banner" role="alert">{error}{checkpoint.current && <button onClick={recover}>Recover workspace</button>}<button onClick={() => setError('')} aria-label="Dismiss error">×</button></div>}
         {view?.text.message && <div className="notice-banner">{view.text.message}</div>}
         {document && view && !view.text.message && !supported && <div className="notice-banner">This page has text, but none meets the supported editing checks. Select an amber region for details.</div>}
-        <div className="page-stage" aria-busy={!!busy}><PagePreview image={view?.image} page={page} zoom={zoom} regions={view?.text.regions} edits={view?.edits} selected={selection} busy={!!busy} showRegions={showRegions} onSelect={selectRegion} tool={spacePan ? 'pan' : tool} objects={view?.objects.filter(object=>object.page===page)} selectedObject={objectSelection} dirty={dirty} strokeWidth={defaults.lineWidth} onSelectObject={selectObject} onPutObject={putObject} onCreateObject={createObject} onInline={beginInline} onEditObjectText={beginAddedInline} inlineDraft={inlineDraft} onInlineChange={updateInline} onInlineApply={applyInline} onInlineCancel={cancelInline}/>{!document && !busy && <div className="empty-actions"><button className="primary" onClick={() => input.current?.click()}>Open PDF</button><button className="secondary" onClick={loadSample}>Open sample</button></div>}</div>
+        <div className="page-stage" aria-busy={!!busy}><PagePreview image={view?.image} page={page} zoom={zoom} regions={view?.text.regions} edits={view?.edits} selected={selection} busy={!!busy} showRegions={showRegions} onSelect={selectRegion} tool={spacePan ? 'pan' : tool} objects={view?.objects.filter(object=>object.page===page)} selectedObject={objectSelection} dirty={dirty} strokeWidth={defaults.lineWidth} onSelectObject={selectObject} onPutObject={putObject} onCreateObject={createObject} onInline={beginInline} onEditObjectText={beginAddedInline} inlineDraft={inlineDraft} onInlineChange={updateInline} onInlineApply={applyInline} onInlineCancel={cancelInline}/>{!document && !busy && <div className="empty-actions"><button className="primary" onClick={() => input.current?.click()}>Open PDF</button></div>}</div>
         <footer className="viewer-footer"><span role="status">{busy || (dirty ? 'Unapplied changes — apply and export before refreshing' : unexported ? 'Unexported changes — export before refreshing or closing' : document && (document.edits.length || document.objects.length) ? 'Actual edited PDF preview' : document ? `${supported} supported text regions on this page` : 'Open a PDF to begin')}</span></footer>
       </section>
       {tool === 'edit' ? <TextProperties key={document?.source.id ?? 'empty'} region={selected} applied={applied} draft={draftText} busy={!!busy} onApply={applyEdit} onChange={changeText} onInline={()=>beginInline(selected)}/> : <ObjectProperties key={document?.source.id ?? 'empty'} object={selectedObject} revision={view?.revision??0} tool={tool} defaults={defaults} asset={selectedObject?.kind==='image' ? assetFiles.current.get(selectedObject.assetId)?.info : pendingImage} busy={!!busy||!!inlineAdded} onDefaults={value=>{toolDefaults.current[tool]=value;setDefaults(value)}} onApply={putObject} onDelete={deleteObject} onDirty={setDirty} onChooseImage={chooseImage} onPlace={placeAtCenter}/>}

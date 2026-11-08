@@ -1,4 +1,4 @@
-import type { AddedObject, DocumentInfo, EditorView, ImageAssetInfo, ImageAssetInput, SessionCheckpoint, TextEdit } from '../model/document'
+import type { AddedObject, DocumentInfo, EditorView, ImageAssetInfo, ImageAssetInput, RenderedPage, SessionCheckpoint, TextEdit } from '../model/document'
 import type { ImageExport, UtilityArtifact, UtilitySource, UtilitySpec } from '../model/utilities'
 export type Command =
   | { type: 'tool-source'; id: string; kind: 'pdf' | 'image'; bytes: ArrayBuffer }
@@ -8,6 +8,7 @@ export type Command =
   | { type: 'open'; bytes: ArrayBuffer; width?: number; dpr?: number }
   | { type: 'sample'; width?: number; dpr?: number }
   | { type: 'view'; page: number; scale: number; dpr: number }
+  | { type: 'thumbnail'; page: number; width: number }
   | { type: 'edit'; edit: TextEdit; scale: number; dpr: number }
   | { type: 'object'; object: AddedObject; scale: number; dpr: number }
   | { type: 'delete-object'; id: string; page: number; scale: number; dpr: number }
@@ -17,7 +18,7 @@ export type Command =
   | { type: 'undo' | 'redo'; page: number; scale: number; dpr: number }
   | { type: 'export' }
 export type OpenResult = { info: DocumentInfo; source: ArrayBuffer; view: EditorView; scale: number }
-export type Result = OpenResult | EditorView | ArrayBuffer | ImageAssetInfo | UtilitySource | UtilityArtifact | ImageExport | { released: true }
+export type Result = OpenResult | EditorView | RenderedPage | ArrayBuffer | ImageAssetInfo | UtilitySource | UtilityArtifact | ImageExport | { released: true }
 export type Request = { id: number; command: Command }
 export type Response = { id: number; result?: Result; error?: string }
 export type Progress = { id: number; progress: string }

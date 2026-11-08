@@ -39,6 +39,12 @@ export class EditorSession {
   private describe(plan: EditPlan) {
     return { edits: structuredClone(plan.edits), objects: structuredClone(plan.objects), revision: this.revision, canUndo: this.position > 0, canRedo: this.position + 1 < this.history.length, historyPosition: this.position, historyLength: this.history.length, assetIds: [...this.usedAssets()] }
   }
+  /** A small render of the current (edited) page for the page list, without text analysis. */
+  thumbnail(page: number, width: number) {
+    if (!Number.isInteger(page) || page < 0 || page >= this.count) throw new Error('Choose an existing page.')
+    const bounds = this.bounds(page)
+    return render(this.currentDoc, page, Math.min(1, width / (bounds[2] - bounds[0])), 1)
+  }
   view(page: number, scale: number, dpr: number): EditorView {
     this.progress?.(`Rendering page ${page + 1}…`)
     return { image: render(this.currentDoc, page, scale, dpr), text: this.analysis(page).view, ...this.describe(this.history[this.position]) }

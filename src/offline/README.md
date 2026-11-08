@@ -5,8 +5,8 @@ static-host `_headers`. The manifest includes all emitted runtime JS, workers, W
 CSS, fonts if added, icons and supporting license resources. The service worker caches
 only the manifest's exact same-origin GET URLs and verifies sizes and SHA-256 hashes.
 No runtime caching, uploads, document buffers, filenames, passwords, thumbnails, text,
-edit plans or document recovery data are stored here. Theme preference remains the
-only application localStorage value.
+edit plans or document recovery data are stored here. The app stores nothing in
+localStorage.
 
 First installation leaves existing tabs untouched: there is no `clients.claim()` or
 `skipWaiting()`. After all files verify, the interface asks for one explicit reload;

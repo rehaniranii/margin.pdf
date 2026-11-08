@@ -15,8 +15,7 @@ npm run dev
 ```
 
 Open the printed localhost URL and choose **Open editor** (or go to `/#/edit`).
-A labeled two-page sample is generated in memory in the editor.
-Or choose **Open PDF** to use your own local PDF.
+The editor starts empty: choose **Open PDF** or drop a PDF anywhere on the page area.
 
 1. Double-click any text to edit it directly on the page (keyboard: focus it and press Enter).
    Editable text is outlined on hover; **Show editable text** outlines all of it.
@@ -244,8 +243,10 @@ usage quota. Each added image has a 32-million-pixel decoding budget, checked fr
 its header before decoding to bound native memory. This is an application memory
 safeguard, not a universal browser limit or per-user quota. Larger images must be resized
 locally first. Cancel restores the last committed workspace; Clear workspace terminates the worker
-and deliberately discards the in-memory document. Inactive page tiles currently show numbers; the selected page
-has a real thumbnail. Password entry is not implemented. No placeholder controls
+and deliberately discards the in-memory document. Every page in the page list shows a preview of the
+current (edited) page. Previews render one at a time as their tiles scroll into view,
+so long documents stay light. After an edit, undo or redo only pages whose content changed
+are re-rendered, and the old preview stays until the new one is ready. Password entry is not implemented. No placeholder controls
 imply that unsupported functionality is complete.
 
 See [architecture](docs/ARCHITECTURE.md), [Phase 4 verification](docs/PHASE4-VERIFICATION.md),
@@ -284,8 +285,8 @@ HTML, JavaScript, module workers, WASM, CSS, icon and license resources. Fonts c
 come from the OS or MuPDF's bundled engine; any future emitted font files join the
 manifest automatically. Only those exact static GET URLs enter the versioned cache.
 Documents, filenames, passwords, page images/thumbnails, extracted text and edit plans
-never enter the offline cache, IndexedDB or browser storage. The theme preference is
-the only localStorage value. No accounts, analytics, advertisements, session recording,
+never enter the offline cache, IndexedDB or browser storage. Nothing is written to
+localStorage. No accounts, analytics, advertisements, session recording,
 remote error reporting, remote fonts or runtime CDNs are included.
 
 To protect existing tabs/jobs, first installation does not claim open pages, and
@@ -316,7 +317,7 @@ while older clients may still need them. Nothing has been deployed.
 
 Clear workspace terminates document workers, drops source/edit/history/image state,
 resets file inputs, and revokes preview/thumbnail URLs through component cleanup. It
-keeps application caches and theme preference; previously downloaded files remain on
+keeps application caches; previously downloaded files remain on
 your device. Pending download URLs are released after browser pickup (up to 30 seconds).
 There is no opt-in local recovery implementation yet and no automatic document saving.
 

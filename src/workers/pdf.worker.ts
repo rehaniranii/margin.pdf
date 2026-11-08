@@ -39,6 +39,7 @@ function execute({ command }: Request): Result {
   if (!session) throw new Error('Open a PDF first.')
   if (command.type === 'export') return session.export()
   if (command.type === 'view') return session.view(command.page, command.scale, command.dpr)
+  if (command.type === 'thumbnail') return session.thumbnail(command.page, command.width)
   if (command.type === 'edit') return session.apply(command.edit, command.scale, command.dpr)
   if (command.type === 'object') return session.putObject(command.object, command.scale, command.dpr)
   if (command.type === 'delete-object') return session.deleteObject(command.id, command.page, command.scale, command.dpr)

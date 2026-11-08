@@ -17,7 +17,7 @@ export function OfflineStatus(){
       <p>The offline cache stores application code and its PDF engine. It does not store your working PDFs. Export before refreshing or closing; a refresh or crash can still discard this memory-only session.</p>
       <p>On the first visit, all offline files are verified before setup is ready. Export any work, then reload once to enable offline use. Updates wait until all existing app tabs close; the app never reloads itself during a document operation.</p>
       <p>Browsers can evict offline files or deny storage. Readiness is rechecked when you return to the tab or change connectivity. Reconnect and retry if files are missing. Real device memory limits still apply.</p>
-      <p>Clear workspace releases document state and workers; it keeps offline app files and your theme preference. Downloaded files remain on your device.</p>
+      <p>Clear workspace releases document state and workers; it keeps the offline app files. Downloaded files remain on your device.</p>
       {status.message&&<p role="alert">{status.message}</p>}
     </div></details>
   </section>

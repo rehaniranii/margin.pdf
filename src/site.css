@@ -4,40 +4,33 @@
 .site h1,.site h2,.site h3{font-family:var(--serif);color:var(--ink);font-weight:600;letter-spacing:-.01em}
 .site *{transition-property:background-color,border-color,color,transform,box-shadow,opacity;transition-duration:.2s}
 .site main{max-width:1160px;margin:0 auto;padding:0 clamp(16px,5vw,56px)}
-
 .site-header{position:sticky;top:0;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px clamp(16px,5vw,56px);background:color-mix(in srgb,var(--paper) 86%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
 .site-header nav{display:flex;align-items:center;gap:clamp(10px,2.6vw,26px);font-size:14px;color:var(--muted)}
 .site-header nav>a:not(.cta){background:linear-gradient(var(--margin),var(--margin)) 0 100%/0 1.5px no-repeat;padding-bottom:2px;transition:background-size .25s,color .2s}
 .site-header nav>a:not(.cta):hover{color:var(--ink);background-size:100% 1.5px}
-
 .cta{display:inline-flex;align-items:center;gap:8px;background:var(--ink);color:var(--paper)!important;padding:12px 20px;border-radius:8px;font-weight:600;font-size:15px}
 .cta:hover{transform:translateY(-1px);box-shadow:0 6px 18px var(--shadow)}
 .cta span{transition:transform .2s}.cta:hover span{transform:translateX(3px)}
 .cta.small{padding:8px 14px;font-size:13px}
 .ghost{padding:12px 16px;font-weight:600;font-size:15px;color:var(--muted);border-radius:8px}.ghost:hover{color:var(--ink);background:var(--surface-3)}
 .link{border:0;background:none;padding:0;color:var(--accent);font-size:13px;font-weight:600;text-decoration:underline;text-underline-offset:3px;cursor:pointer}.link:hover:not(:disabled){background:none;color:var(--accent-strong)}
-
 /* Hero: copy on the left, a sheet of ruled paper you can drop onto on the right */
 .hero{display:grid;grid-template-columns:1.05fr .95fr;gap:clamp(32px,6vw,72px);align-items:center;padding:clamp(48px,8vw,96px) 0 clamp(56px,8vw,88px)}
 .kicker{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--margin);font-weight:600;margin:0 0 20px}
 .hero h1{font-size:clamp(38px,5.6vw,64px);line-height:1.04;margin:0;letter-spacing:-.025em}
 .lede{font-size:clamp(16px,1.5vw,18px);line-height:1.7;color:var(--muted);max-width:500px;margin:22px 0 32px}
 .hero-actions{display:flex;flex-wrap:wrap;gap:8px}
-
 .sheet{position:relative;min-height:340px;background:var(--surface);border:1px solid var(--line);border-radius:4px;box-shadow:0 1px 0 var(--line),0 24px 50px -24px var(--shadow);
   background-image:linear-gradient(var(--margin-soft),var(--margin-soft)),repeating-linear-gradient(transparent 0 31px,var(--rule) 31px 32px);background-size:1.5px 100%,100% 100%;background-position:52px 0,0 18px;background-repeat:no-repeat,repeat}
 .sheet::before{content:"";position:absolute;left:51px;top:0;bottom:0;width:1.5px;background:var(--margin);transform-origin:top;animation:rule 1s .5s cubic-bezier(.6,0,.2,1) both}
 .sheet::after{content:"";position:absolute;inset:auto 14px -10px 14px;height:10px;background:var(--surface-2);border:1px solid var(--line);border-top:0;border-radius:0 0 4px 4px;z-index:-1}
-
 .go{margin-left:auto;color:var(--faint);transition:transform .2s,color .2s}
 a:hover>.go,button:hover>.go{transform:translateX(3px);color:var(--accent)}
-
 .tool-icon{flex:none;width:38px;height:38px;border-radius:9px;background:var(--accent-tint);display:grid;place-items:center}
 .tool-icon svg{width:19px;height:19px;fill:none;stroke:var(--accent);stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .tool-icon path{stroke-dasharray:1;stroke-dashoffset:0}
 a:hover .tool-icon path,button:hover .tool-icon path{animation:draw .6s ease both}
 .tool-icon.large{width:52px;height:52px;border-radius:12px}.tool-icon.large svg{width:26px;height:26px}
-
 /* Tools as a book index: entries with dotted leaders */
 .section-head{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:24px;align-items:end;padding-bottom:20px;border-bottom:1.5px solid var(--ink);margin-bottom:8px}
 .section-head h2{font-size:clamp(30px,3.6vw,42px);margin:0}
@@ -55,17 +48,14 @@ a:hover .tool-icon path,button:hover .tool-icon path{animation:draw .6s ease bot
 .entry small{font-size:13.5px;color:var(--muted);line-height:1.45}
 .leader{flex:1;min-width:24px;align-self:center;height:1px;background:radial-gradient(circle,var(--line-strong) 1px,transparent 1.2px) 0 0/7px 2px repeat-x;margin-top:2px}
 .index-group .go{margin-left:0}
-
 .fine-print{padding:48px 0 24px}
 .fine-print ol{list-style:none;counter-reset:note;margin:0;padding:0;display:grid;grid-template-columns:repeat(3,1fr);gap:0 40px}
 .fine-print li{counter-increment:note;padding:26px 0 0}
 .fine-print h3{font-size:19px;margin:0 0 8px}
 .fine-print h3::before{content:counter(note);font-family:var(--sans);font-size:11px;font-weight:700;color:var(--margin);vertical-align:super;margin-right:6px}
 .fine-print p{margin:0;font-size:14.5px;line-height:1.7;color:var(--muted)}
-
 .site-footer{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;max-width:1160px;margin:56px auto 0;padding:24px clamp(16px,5vw,56px) 36px;border-top:1px solid var(--line);font-size:13px;color:var(--faint)}
 .site-footer span:first-child{font-family:var(--serif);color:var(--muted);font-weight:600}
-
 /* Tool pages: the existing utility panel, laid out inline */
 .tool-heading{padding:36px 0 22px}
 .crumbs{display:flex;gap:8px;font-size:13px;color:var(--faint);margin-bottom:18px}.crumbs a:hover{color:var(--ink)}
@@ -84,13 +74,11 @@ a:hover .tool-icon path,button:hover .tool-icon path{animation:draw .6s ease bot
 .related-list a{display:flex;gap:12px;align-items:center;padding:14px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
 .related-list a:hover{border-color:var(--line-strong);transform:translateY(-2px)}
 .related-list strong{display:block;font-size:14px;color:var(--ink)}.related-list small{font-size:13px;color:var(--muted)}
-
 .rise{animation:rise .7s cubic-bezier(.2,.7,.2,1) both;animation-delay:var(--d,0ms)}
 @supports (animation-timeline:view()){.reveal{animation:rise linear both;animation-timeline:view();animation-range:entry 0% entry 55%}}
 @keyframes rise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
 @keyframes rule{from{transform:scaleY(0)}to{transform:scaleY(1)}}
 @keyframes draw{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
-
 @media(max-width:880px){.hero{grid-template-columns:1fr}.sheet{min-height:340px}.index-grid,.fine-print ol{grid-template-columns:1fr}.section-head{grid-template-columns:1fr}.section-head p{justify-self:start}.site-header nav>a:not(.cta){display:none}}
 @media(max-width:520px){.sheet::before{left:31px}.sheet{background-position:32px 0,0 18px}.leader{display:none}.tool-title{align-items:flex-start}}
 @media(prefers-reduced-motion:reduce){.site *,.site *::before,.site *::after{animation:none!important;transition:none!important}}
@@ -121,12 +109,10 @@ a:hover .tool-icon path,button:hover .tool-icon path{animation:draw .6s ease bot
 @keyframes swap-new{0%,33%{opacity:1;clip-path:inset(-4px 100% -4px 0)}44%,88%{opacity:1;clip-path:inset(-4px 0 -4px 0)}93%,100%{opacity:0;clip-path:inset(-4px 0 -4px 0)}}
 @keyframes swap-caret{0%,31%{opacity:0;left:0}33%{opacity:1;left:0}44%{opacity:1;left:100%}50%,100%{opacity:0;left:100%}}
 .mark{position:relative;--hl:#f5d55c8c}
-[data-theme=dark] .mark{--hl:#d9b84a59}
 .mark::before{content:"";position:absolute;z-index:-1;left:-2px;right:-2px;bottom:-4px;height:68%;background:var(--hl);border-radius:2px;transform-origin:left;transform:scaleX(0);animation:mark 9s cubic-bezier(.4,0,.2,1) infinite}
 @keyframes mark{0%,48%{transform:scaleX(0);opacity:1}54%,88%{transform:scaleX(1);opacity:1}93%,100%{transform:scaleX(1);opacity:0}}
 .redact{position:relative}
 .redact::after{content:"";position:absolute;inset:-4px -3px -5px;background:var(--ink);border-radius:1px;transform-origin:left;animation:redact 9s cubic-bezier(.4,0,.2,1) infinite}
-[data-theme=dark] .redact::after{background:#050608;box-shadow:inset 0 0 0 1px var(--line-strong)}
 @keyframes redact{0%,56%{transform:scaleX(0);opacity:1}62%,88%{transform:scaleX(1);opacity:1}93%,100%{transform:scaleX(1);opacity:0}}
 .signature{width:118px;height:36px;vertical-align:-10px;margin-left:4px;overflow:visible}
 .signature path{fill:none;stroke:var(--accent);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:1;animation:sign 9s cubic-bezier(.45,.05,.35,1) infinite}
