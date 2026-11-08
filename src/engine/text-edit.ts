@@ -6,7 +6,21 @@ import { analyzePage, assertGlyphs, basicLatin, paintedGlyphs, safeBackdrop } fr
 import type { Analysis, AnalyzedRegion, Glyph } from './text-analysis'
 
 export const REPLACEMENT_FONTS: readonly ReplacementFont[] = ['Helvetica', 'Helvetica-Bold', 'Helvetica-Oblique', 'Helvetica-BoldOblique', 'Times-Roman', 'Times-Bold', 'Times-Italic', 'Times-BoldItalic', 'Courier', 'Courier-Bold', 'Courier-Oblique', 'Courier-BoldOblique']
-export type PreparedEdit = { edit: TextEdit; region: AnalyzedRegion; ink: Rect; glyphs: Pick<Glyph, 'unicode' | 'origin'>[]; command: string }
+export type PreparedEdit = { edit: TextEdit; region: AnalyzedRegion; ink: Rect; glyphs: Pick<Glyph, 'unicode' | 'origin'>[]; lines: string[]; command: string }
+
+/** Greedy word wrap. A single word wider than the line cannot be placed. */
+export function wrap(value: string, width: number, measure: (text: string) => number) {
+  const lines: string[] = []
+  let line = ''
+  for (const word of value.split(/ +/)) {
+    const candidate = line ? `${line} ${word}` : word
+    if (measure(candidate) <= width + 0.05 || !line) { line = candidate; continue }
+    lines.push(line); line = word
+  }
+  lines.push(line)
+  if (lines.some(entry => measure(entry) > width + 0.05)) throw new Error('A word in the replacement is wider than the paragraph. Shorten it or reduce the font size. The layout has not changed.')
+  return lines
+}
 const number = (value: number) => Number(value.toFixed(6)).toString()
 const literal = (value: string) => `(${value.replace(/[\\()]/g, '\\$&')})`
 
@@ -24,25 +38,34 @@ export function prepareEdit(analysis: Analysis, edit: TextEdit, fontKey = 'F'): 
   try {
     const [ux, uy] = region.direction
     const [x, y] = region.origin
-    const trm: mupdf.Matrix = [ux * edit.size, uy * edit.size, uy * edit.size, -ux * edit.size, x, y]
-    const end = text.showString(font, trm, edit.text)
-    const width = Math.hypot(end[4] - x, end[5] - y)
     const capacity = Math.abs(ux) * (region.bounds[2] - region.bounds[0]) + Math.abs(uy) * (region.bounds[3] - region.bounds[1])
+    const measure = (value: string) => [...value].reduce((sum, c) => sum + font.advanceGlyph(font.encodeCharacter(c)) * edit.size, 0)
+    // A paragraph wraps word by word into at most its original number of lines, at its original spacing.
+    const maxLines = region.lines ?? 1, gap = region.lineGap ?? edit.size * 1.2
+    const lines = maxLines > 1 ? wrap(edit.text, capacity, measure) : [edit.text]
+    if (lines.length > maxLines) throw new Error(`The replacement needs ${lines.length} lines but this paragraph has room for ${maxLines}. Shorten it or reduce the font size. The layout has not changed.`)
+    let widest = 0
+    lines.forEach((line, i) => {
+      const lx = x - uy * gap * i, ly = y + ux * gap * i
+      const end = text.showString(font, [ux * edit.size, uy * edit.size, uy * edit.size, -ux * edit.size, lx, ly], line)
+      widest = Math.max(widest, Math.hypot(end[4] - lx, end[5] - ly))
+    })
     const ink = edit.text ? text.getBounds(null as unknown as mupdf.StrokeState, mupdf.Matrix.identity) : region.bounds
-    if (width > capacity + 0.05 || (edit.text && !contains(region.bounds, ink, 1))) throw new Error(`The replacement does not fit the original line’s width or height. Shorten it or reduce the font size. The layout has not changed.`)
+    if (widest > capacity + 0.05 || (edit.text && !contains(region.bounds, ink, 1))) throw new Error(`The replacement does not fit the original ${maxLines > 1 ? 'paragraph' : 'line’s width or height'}. Shorten it or reduce the font size. The layout has not changed.`)
     if (!contains(analysis.view.bounds, ink)) throw new Error('The replacement would extend beyond the visible page. Reduce its size.')
     const selected = new Set(region.glyphIndices)
     const selectedGlyphs = region.glyphIndices.map(index => analysis.glyphs[index])
     if (selectedGlyphs.some(glyph => glyph.clips.some(clip => !contains(clip, ink)))) throw new Error('The replacement would cross the original clipping boundary. Reduce its size.')
     const textOrder = selectedGlyphs.reduce((order, glyph) => Math.min(order, glyph.order), Infinity)
-    const footprint = union(ink, region.bounds)
+    const removal = region.removal ?? region.bounds
+    const footprint = union(ink, removal)
     if (analysis.graphics.some(graphic => intersects(graphic.bounds, footprint) && !safeBackdrop(graphic, footprint, textOrder))) throw new Error('The replacement would touch a neighboring graphic. Reduce its size or use a shorter line.')
-    if (analysis.glyphs.some((glyph, index) => !selected.has(index) && intersects(union(ink, region.bounds), glyph.bounds))) throw new Error('The replacement would touch neighboring text. Reduce its size or use a shorter line.')
+    if (analysis.glyphs.some((glyph, index) => !selected.has(index) && intersects(footprint, glyph.bounds))) throw new Error('The replacement would touch neighboring text. Reduce its size or use a shorter line.')
     const glyphs: Pick<Glyph, 'unicode' | 'origin'>[] = []
     text.walk({ showGlyph(_font, matrix, _glyph, unicode) { glyphs.push({ unicode, origin: [matrix[4], matrix[5]] }) } })
     const color = [1, 3, 5].map(offset => parseInt(edit.color.slice(offset, offset + 2), 16) / 255)
-    const matrix = [ux, uy, uy, -ux, x, y].map(number).join(' ')
-    return { edit, region, ink, glyphs, command: `q BT /${fontKey} ${number(edit.size)} Tf ${color.map(number).join(' ')} rg ${matrix} Tm ${literal(edit.text)} Tj ET Q` }
+    const shows = lines.map((line, i) => `${[ux, uy, uy, -ux, x - uy * gap * i, y + ux * gap * i].map(number).join(' ')} Tm ${literal(line)} Tj`).join(' ')
+    return { edit, region, ink, glyphs, lines, command: `q BT /${fontKey} ${number(edit.size)} Tf ${color.map(number).join(' ')} rg ${shows} ET Q` }
   } finally { text.destroy(); font.destroy() }
 }
 
@@ -95,11 +118,12 @@ export function compileTextEdits(source: Uint8Array, edits: TextEdit[], analyze?
     const groups = new Map<number, TextEdit[]>()
     for (const edit of edits) groups.set(edit.page, [...groups.get(edit.page) ?? [], edit])
     const expected = new Map<number, Pick<Glyph, 'unicode' | 'origin'>[]>()
+    const searchable = new Map<number, string[]>()
     for (const [index, pageEdits] of groups) {
       const analysis = analyze ? analyze(index) : analyzePage(doc, index)
       const prepared = pageEdits.map((edit, i) => prepareEdit(analysis, edit, `F${i}`))
       for (let i = 0; i < prepared.length; i++) for (let j = i + 1; j < prepared.length; j++) {
-        if (intersects(union(prepared[i].ink, prepared[i].region.bounds), union(prepared[j].ink, prepared[j].region.bounds))) throw new Error('These edits overlap. No changes were applied.')
+        if (intersects(union(prepared[i].ink, prepared[i].region.removal ?? prepared[i].region.bounds), union(prepared[j].ink, prepared[j].region.removal ?? prepared[j].region.bounds))) throw new Error('These edits overlap. No changes were applied.')
       }
       const removed = new Set(prepared.flatMap(p => p.region.glyphIndices))
       const remaining = analysis.glyphs.filter((_, i) => !removed.has(i))
@@ -107,13 +131,14 @@ export function compileTextEdits(source: Uint8Array, edits: TextEdit[], analyze?
       try {
         for (const { region } of prepared) {
           const annotation = page.createAnnotation('Redact')
-          try { annotation.setRect(region.bounds) } finally { annotation.destroy() }
+          try { annotation.setRect(region.removal ?? region.bounds) } finally { annotation.destroy() }
         }
         page.applyRedactions(false, mupdf.PDFPage.REDACT_IMAGE_NONE, mupdf.PDFPage.REDACT_LINE_ART_NONE, mupdf.PDFPage.REDACT_TEXT_REMOVE)
         // Verify the removal in isolation, even when replacement == original wording.
         assertGlyphs(paintedGlyphs(page).glyphs, remaining)
         insertReplacements(doc, page, analysis, prepared)
         expected.set(index, [...remaining, ...prepared.flatMap(p => p.glyphs)])
+        searchable.set(index, prepared.flatMap(p => p.lines.map(line => line.trim()).filter(Boolean)))
       } finally { page.destroy() }
     }
     const buffer = doc.saveToBuffer('garbage=4,compress')
@@ -129,7 +154,7 @@ export function compileTextEdits(source: Uint8Array, edits: TextEdit[], analyze?
           try {
             const text = textPage.toStructuredText('')
             try {
-              for (const edit of groups.get(index)!) if (edit.text.trim() && text.search(edit.text.trim(), {}).length === 0) throw new Error('The replacement could not be verified as searchable PDF text. No changes were applied.')
+              for (const line of searchable.get(index)!) if (text.search(line, {}).length === 0) throw new Error('The replacement could not be verified as searchable PDF text. No changes were applied.')
             } finally { text.destroy() }
           } finally { textPage.destroy() }
         }

@@ -10,7 +10,8 @@ export type Point = [number, number]
 export type Matrix = [number, number, number, number, number, number]
 export type ReplacementFont = 'Helvetica' | 'Helvetica-Bold' | 'Helvetica-Oblique' | 'Helvetica-BoldOblique' | 'Times-Roman' | 'Times-Bold' | 'Times-Italic' | 'Times-BoldItalic' | 'Courier' | 'Courier-Bold' | 'Courier-Oblique' | 'Courier-BoldOblique'
 export type TextEdit = { type: 'replace-text'; page: number; regionId: string; text: string; font: ReplacementFont; size: number; color: string }
-export type TextRegion = { id: string; text: string; bounds: Rect; origin: Point; direction: Point; fontName: string; fontSize: number; color: string; unsupported?: string }
+// `lines`/`lineGap` describe a paragraph of same-style lines; absent means a single line.
+export type TextRegion = { id: string; text: string; bounds: Rect; origin: Point; direction: Point; fontName: string; fontSize: number; color: string; unsupported?: string; lines?: number; lineGap?: number }
 export type PageText = { page: number; bounds: Rect; regions: TextRegion[]; message?: string }
 export type ObjectBox = { x: number; y: number; width: number; height: number }
 type ObjectBase = { id: string; page: number; box: ObjectBox }

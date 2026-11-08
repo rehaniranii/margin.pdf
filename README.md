@@ -67,8 +67,16 @@ cross-platform runtime. They were not suppressed, and production browser checks 
   spaces, punctuation. No accents, emoji, complex scripts, or line breaks yet.
 - The 12 standard PDF fonts (Helvetica, Times, Courier, each regular/bold/italic/bold
   italic). The closest one to the original font name is preselected.
-- Fixed layout. Replacement width and glyph bounds must fit the original span;
-  overflow is rejected. Shorten the text or reduce its size. Empty text removes it.
+- Words placed one by one are rejoined into lines, and consecutive same-style lines with
+  steady spacing and a shared left edge become one **paragraph** you can replace as a
+  whole. The replacement wraps to the paragraph's width at its original line spacing,
+  using at most its original number of lines (left-aligned). Pieces separated by a border
+  or rule (table cells, rows) are never joined, and a merge is kept only if it passes
+  every overlap check.
+- Fixed layout. Replacement width and glyph bounds must fit the original span or
+  paragraph; overflow is rejected and following content does not move. Shorten the text
+  or reduce its size. Empty text removes it. Overlap checks use the glyphs' real ink,
+  not their taller character boxes, so ordinary tight leading does not block editing.
 - Verified removal before insertion, searchable replacement, accurate PDF preview,
   export, multiple edits across pages, and undo/redo with history branching.
 

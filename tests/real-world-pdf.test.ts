@@ -73,3 +73,46 @@ test('a bold replacement font compiles, verifies and is reported back as bold',(
  const out=openPdf(compileTextEdits(bytes,[{type:'replace-text',page:0,regionId:region.id,text:'Bold now',font:'Helvetica-Bold',size:20,color:'#000000'}]))
  try{assert.match(analyzePage(out,0).view.regions.find(r=>r.text==='Bold now')!.fontName,/Bold/)}finally{out.destroy()}
 })
+
+// Word/InDesign-style output: every word positioned separately, lines of one paragraph.
+const helvetica=new mupdf.Font('Helvetica'),width=(word:string)=>[...word].reduce((sum,c)=>sum+helvetica.advanceGlyph(helvetica.encodeCharacter(c))*12,0)
+// Each word is its own text object at its measured position, separated by a normal 3.3 pt space.
+const words=(y:number,text:string)=>{let x=80;return text.split(' ').map(word=>{const op=`BT /F 12 Tf 1 0 0 1 ${x.toFixed(2)} ${y} Tm (${word}) Tj ET`;x+=width(word)+3.34;return op}).join(' ')}
+const paragraph=[words(400,'The quick brown fox jumps over'),words(385,'the lazy dog while the farmer'),words(370,'watches from the old barn.')].join(' ')
+
+test('words placed one by one are joined into lines, and lines into one paragraph',()=>{
+ const view=regions(exported(paragraph))
+ assert.equal(view.regions.length,1)
+ assert.equal(view.regions[0].text,'The quick brown fox jumps over the lazy dog while the farmer watches from the old barn.')
+ assert.equal(view.regions[0].lines,3);assert.equal(view.regions[0].unsupported,undefined)
+})
+
+test('a whole paragraph is replaced, wrapped to its width and original line spacing',()=>{
+ const bytes=exported(paragraph),region=regions(bytes).regions[0]
+ const out=compileTextEdits(bytes,[{type:'replace-text',page:0,regionId:region.id,text:'A brand new paragraph that is long enough to wrap onto a second line.',font:'Helvetica',size:12,color:'#000000'}])
+ const doc=openPdf(out)
+ try{
+  const after=analyzePage(doc,0).view.regions
+  assert.equal(after.length,1);assert.equal(after[0].text,'A brand new paragraph that is long enough to wrap onto a second line.')
+  assert.ok(after[0].lines!>=2);assert.ok(Math.abs(after[0].lineGap!-15)<0.1)
+  assert.doesNotMatch(inspect(doc).text,/fox|farmer|barn/)
+ }finally{doc.destroy()}
+ assert.throws(()=>compileTextEdits(bytes,[{type:'replace-text',page:0,regionId:region.id,text:'word '.repeat(80).trim(),font:'Helvetica',size:12,color:'#000000'}]),/room for 3/)
+})
+
+test('lines are not merged across a change of style, a big gap, or an overlapping graphic',()=>{
+ const twoStyles=regions(exported(`${words(400,'Heading words here')} BT /F 9 Tf 1 0 0 1 80 385 Tm (smaller caption text) Tj ET`))
+ assert.equal(twoStyles.regions.length,2,JSON.stringify(twoStyles.regions.map(r=>[r.text,r.unsupported])))
+ const farApart=regions(exported(`${words(400,'First paragraph line')} ${words(340,'Second paragraph line')}`))
+ assert.equal(farApart.regions.length,2,JSON.stringify(farApart.regions.map(r=>[r.text,r.unsupported])))
+ const covered=regions(exported(`${paragraph} q 0 0 1 rg 70 383 200 3 re f Q`))
+ assert.ok(covered.regions.length>1,'a graphic over one line must not lock the others into an uneditable paragraph')
+ assert.ok(covered.regions.some(r=>!r.unsupported))
+})
+
+test('table cells separated by borders are not merged into one line or paragraph',()=>{
+ const cell=(x:number,y:number,t:string)=>`BT /F 12 Tf 1 0 0 1 ${x} ${y} Tm (${t}) Tj ET`
+ const grid='q 0 G 0.5 w 75 382 m 75 412 l S 125 382 m 125 412 l S 175 382 m 175 412 l S 75 397 m 175 397 l S Q'
+ const view=regions(exported(`${grid} ${cell(80,400,'North')} ${cell(130,400,'1,200')} ${cell(80,385,'South')} ${cell(130,385,'980')}`))
+ assert.deepEqual(view.regions.map(r=>r.text).sort(),['1,200','980','North','South'])
+})

@@ -148,7 +148,7 @@ test('invalid object transactions do not alter PDF bytes, checkpoint or history'
     assert.deepEqual(session.snapshot(),before)
     const multiline:AddedObject={id:'note',page:0,kind:'text',font:'Helvetica',size:16,color:'#2859cf',text:'First line\nSecond line',box:{x:20,y:200,width:180,height:65}}
     session.putObject(multiline,1,1)
-    const doc=openPdf(session.export());try{assert.ok(analyzePage(doc,0).view.regions.some(line=>line.text==='Second line'))}finally{doc.destroy()}
+    const doc=openPdf(session.export());try{assert.ok(analyzePage(doc,0).view.regions.some(region=>region.text.includes('Second line')))}finally{doc.destroy()}
   }finally{session.dispose()}
 })
 

@@ -4,7 +4,8 @@ import { contains, intersects, quadBounds, samePoint, union } from '../geometry/
 
 export type Glyph = { unicode: number; origin: Point; bounds: Rect; matrix: Matrix; font: string; safe: boolean; order: number; clips: Rect[] }
 export type Graphic = { bounds: Rect; order: number; background: boolean; reason?: string }
-export type AnalyzedRegion = TextRegion & { glyphIndices: number[] }
+// `removal` is the ink of the region's own glyphs: what redaction removes and what must not touch other content.
+export type AnalyzedRegion = TextRegion & { glyphIndices: number[]; removal?: Rect }
 export type Analysis = { view: PageText; regions: AnalyzedRegion[]; glyphs: Glyph[]; pdfToPage: Matrix; graphics: Graphic[] }
 const near = (a: number, b: number) => Math.abs(a - b) < 0.02
 export const basicLatin = (value: string) => /^[\x20-\x7e]*$/.test(value)
@@ -188,22 +189,71 @@ export function analyzePage(doc: mupdf.PDFDocument, index: number): Analysis {
       })
       flush()
     } finally { structured.destroy() }
-    regions.forEach((region, i) => { region.id = `${index}:${i}` })
-    for (const region of regions) {
+    const check = (region: AnalyzedRegion) => {
+      // Character boxes are ~1.4 em tall and overlap neighbouring lines in ordinary leading; use real ink instead.
+      const inked = region.glyphIndices.map(i => paint.glyphs[i].bounds).filter(rect => rect[2] > rect[0] && rect[3] > rect[1])
+      const removal = region.removal = inked.length ? inked.reduce(union) : region.bounds
       if (!contains(bounds, region.bounds)) region.unsupported ??= 'This line extends beyond the visible crop area.'
       if (region.glyphIndices.some(i => paint.glyphs[i].clips.some(clip => !contains(clip, region.bounds)))) region.unsupported ??= 'This text area crosses a clipping boundary. It is view-only.'
       const selected = new Set(region.glyphIndices)
-      if (paint.glyphs.some((glyph, i) => !selected.has(i) && intersects(region.bounds, glyph.bounds))) region.unsupported ??= 'Other text overlaps this line’s removal area. Editing it could remove neighboring content.'
-      if (annotationBounds.some(rect => intersects(rect, region.bounds))) region.unsupported ??= 'A link, annotation, or form overlaps this line. It is view-only.'
+      if (paint.glyphs.some((glyph, i) => !selected.has(i) && intersects(removal, glyph.bounds))) region.unsupported ??= 'Other text overlaps this line’s removal area. Editing it could remove neighboring content.'
+      if (annotationBounds.some(rect => intersects(rect, removal))) region.unsupported ??= 'A link, annotation, or form overlaps this line. It is view-only.'
       const firstOrder = region.glyphIndices.reduce((order, i) => Math.min(order, paint.glyphs[i].order), Infinity)
-      for (const obstacle of paint.obstacles) if (intersects(obstacle.bounds, region.bounds)) {
-        const backdrop = safeBackdrop(obstacle, region.bounds, firstOrder)
+      for (const obstacle of paint.obstacles) if (intersects(obstacle.bounds, removal)) {
+        const backdrop = safeBackdrop(obstacle, removal, firstOrder)
         if (!backdrop) region.unsupported ??= obstacle.reason ?? 'An image or graphic is drawn on top of this line. It is view-only to preserve that content.'
       }
       if (!region.glyphIndices.length) region.unsupported ??= 'No editable glyphs were found in this line.'
+      return !region.unsupported
     }
-    return { view: { page: index, bounds, regions: regions.map(({ glyphIndices: _, ...region }) => region), message: !regions.length ? 'No editable text was found. This may be a scanned page; OCR is outside this release.' : pageReason }, regions, glyphs: paint.glyphs, pdfToPage, graphics: paint.obstacles }
+    regions.forEach(check)
+    // Exporters often place each word as its own span, and extraction keeps spans
+    // apart. Join same-style pieces back into lines, then lines into paragraphs, so a
+    // whole paragraph can be replaced. A merge is kept only if it passes every check.
+    // A border or rule between two pieces (table cells, rows, columns) keeps them apart;
+    // a background behind both does not.
+    const divided = (a: AnalyzedRegion, b: AnalyzedRegion) => {
+      const area = union(a.bounds, b.bounds)
+      return paint.obstacles.some(o => intersects(o.bounds, area) && !contains(o.bounds, area, -0.1) && !intersects(o.bounds, a.removal ?? a.bounds) && !intersects(o.bounds, b.removal ?? b.bounds))
+    }
+    const lines = joinRegions(regions, check, (a, b) => {
+      if (divided(a, b)) return undefined
+      const along = span(b.bounds, a.direction)[0] - span(a.bounds, a.direction)[1]
+      return Math.abs(across(a, b.origin)) < 0.5 && along > -0.5 && along <= a.fontSize * 1.2 ? { text: along > a.fontSize * 0.1 && !a.text.endsWith(' ') ? ' ' : '' } : undefined
+    })
+    const paragraphs = joinRegions(lines, check, (a, b) => {
+      if (divided(a, b)) return undefined
+      const gap = across(a, b.origin) - (a.lineGap ?? 0) * ((a.lines ?? 1) - 1)
+      const steady = !a.lineGap || Math.abs(gap - a.lineGap) <= a.lineGap * 0.15
+      return gap >= a.fontSize * 0.9 && gap <= a.fontSize * 2 && steady && Math.abs(span(b.bounds, a.direction)[0] - span(a.bounds, a.direction)[0]) <= a.fontSize * 0.6
+        ? { text: ' ', lines: (a.lines ?? 1) + (b.lines ?? 1), lineGap: a.lineGap ?? gap } : undefined
+    })
+    paragraphs.forEach((region, i) => { region.id = `${index}:${i}` })
+    return { view: { page: index, bounds, regions: paragraphs.map(({ glyphIndices: _, ...region }) => region), message: !paragraphs.length ? 'No editable text was found. This may be a scanned page; OCR is outside this release.' : pageReason }, regions: paragraphs, glyphs: paint.glyphs, pdfToPage, graphics: paint.obstacles }
   } finally { page.destroy() }
+}
+
+// Extent of a rectangle along an axis-aligned reading direction.
+function span(rect: Rect, [ux, uy]: Point): [number, number] {
+  const values = [rect[0] * ux + rect[1] * uy, rect[2] * ux + rect[1] * uy, rect[0] * ux + rect[3] * uy, rect[2] * ux + rect[3] * uy]
+  return [Math.min(...values), Math.max(...values)]
+}
+// Distance from a region's first baseline to a point, perpendicular to its reading direction (positive = next line).
+const across = (region: TextRegion, point: Point) => (point[0] - region.origin[0]) * -region.direction[1] + (point[1] - region.origin[1]) * region.direction[0]
+
+function joinRegions(regions: AnalyzedRegion[], check: (region: AnalyzedRegion) => boolean, joinable: (a: AnalyzedRegion, b: AnalyzedRegion) => { text: string; lines?: number; lineGap?: number } | undefined) {
+  const out: AnalyzedRegion[] = []
+  for (const region of regions) {
+    const previous = out[out.length - 1]
+    const sameStyle = previous && !previous.unsupported && !region.unsupported && previous.fontName === region.fontName && near(previous.fontSize, region.fontSize) && previous.color === region.color && samePoint(previous.direction, region.direction, 0.01)
+    const join = sameStyle ? joinable(previous, region) : undefined
+    if (join) {
+      const merged: AnalyzedRegion = { ...previous, text: previous.text + join.text + region.text, bounds: union(previous.bounds, region.bounds), glyphIndices: [...previous.glyphIndices, ...region.glyphIndices], lines: join.lines ?? previous.lines, lineGap: join.lineGap ?? previous.lineGap, unsupported: undefined }
+      if (check(merged)) { out[out.length - 1] = merged; continue }
+    }
+    out.push(region)
+  }
+  return out
 }
 
 // Compare glyph identity and positions, rather than a global substring search:

@@ -393,7 +393,7 @@ export default function App() {
     return()=>{window.removeEventListener('copy',copy);window.removeEventListener('paste',paste)}
   },[utilitiesOpen,view,busy,dirty,page,zoom,selection,objectSelection,tool])
   let inlineDraft:InlineDraft|undefined
-  if(inlineSource&&selected&&draftText)inlineDraft={...draftText,bounds:selected.bounds,direction:selected.direction,multiline:false}
+  if(inlineSource&&selected&&draftText)inlineDraft={...draftText,bounds:selected.bounds,direction:selected.direction,multiline:false,wrap:(selected.lines??1)>1}
   else if(inlineAdded)inlineDraft={...inlineAdded,bounds:[inlineAdded.box.x,inlineAdded.box.y,inlineAdded.box.x+inlineAdded.box.width,inlineAdded.box.y+inlineAdded.box.height],multiline:true}
   function updateInline(value:string){if(inlineSource&&draftText)changeText({...draftText,text:value});else if(inlineAdded){setInlineAdded({...inlineAdded,text:value});setDirty(selectedObject?.kind!=='text'||value!==selectedObject.text)}}
   function applyInline(){if(inlineSource&&draftText)void applyEdit(draftText);else if(inlineAdded)void putObject(inlineAdded)}

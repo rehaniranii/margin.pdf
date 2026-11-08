@@ -19,8 +19,8 @@ export function TextProperties({ region, applied, draft: supplied, busy, onApply
       <p className="hint">Click once to select it and edit here instead. Turn on <em>Show editable text</em> to see everything you can change.</p>
     </div> : region.unsupported ? <div className="unsupported" role="status"><strong>This text is view-only</strong><p>{region.unsupported}</p><p>The document has not changed.</p></div>
     : <form className="text-form" onSubmit={event => { event.preventDefault(); onApply(draft) }}>
-      <label htmlFor="replacement">Text</label>
-      <textarea id="replacement" aria-label="Replacement text" rows={2} value={draft.text} onChange={event => update({ text: event.target.value })} disabled={busy} spellCheck={false} aria-describedby="text-support fit-policy"/>
+      <label htmlFor="replacement">{(region.lines ?? 1) > 1 ? `Paragraph · ${region.lines} lines` : 'Text'}</label>
+      <textarea id="replacement" aria-label="Replacement text" rows={(region.lines ?? 1) > 1 ? 6 : 2} value={draft.text} onChange={event => update({ text: event.target.value })} disabled={busy} spellCheck={false} aria-describedby="text-support fit-policy"/>
       {unsupportedCharacters && <p className="inline-error" role="status">This replacement contains unsupported characters. Use basic Latin letters, numbers, and punctuation.</p>}
       <div className="style-row">
         <div className="field grow"><label htmlFor="font">Font</label><FontSelect id="font" label="Replacement font" value={draft.font} disabled={busy} onChange={font => update({ font })}/></div>
@@ -31,7 +31,7 @@ export function TextProperties({ region, applied, draft: supplied, busy, onApply
         <button className="primary" type="submit" disabled={busy || !dirty || unsupportedCharacters || !Number.isFinite(draft.size)}>Apply changes</button>
         {dirty && <button className="text-button" type="button" onClick={discard} disabled={busy}>Discard</button>}
       </div>
-      <p className="form-status" role="status">{dirty ? 'Not applied yet.' : applied ? 'Applied. The page shows the edited PDF.' : ''}</p>
+      <p className="form-status" role="status">{dirty ? 'Not applied yet.' : applied ? 'Applied. The page shows the edited PDF.' : (region.lines ?? 1) > 1 ? `Your text wraps to fit up to ${region.lines} lines.` : ''}</p>
       <button type="button" className="link-button" onClick={onInline} disabled={busy}>Edit on the page instead</button>
       <details className="fine-details"><summary>Fonts and fitting</summary>
         <p id="text-support">Original font: {region.fontName.replace(/^[A-Z]{6}\+/, '')}. The closest standard font is picked for you; letter shapes and spacing may differ slightly.</p>
