@@ -100,3 +100,12 @@ Support remains deliberately conservative: simple horizontal source text, printa
 basic Latin, three replacement fonts, fixed slots, and explicit read-only states.
 See the current README and Phase 2 verification for the exact limits. No dependency
 or licensing-route change was made, and no project-wide license was assigned.
+
+## Phase 3 additions
+
+The same pinned MuPDF engine provides image embedding and PDF/vector overlays; no
+pdf-lib or new dependency was needed. [Image constructors](https://mupdf.readthedocs.io/en/latest/reference/javascript/types/Image.html)
+and [PDFDocument resource/stream APIs](https://mupdf.readthedocs.io/en/latest/reference/javascript/types/PDFDocument.html)
+were checked against official documentation and the installed declarations before use.
+Tests exercise real font/image resources, alpha graphics, page transforms and exports.
+Distribution licensing remains unchanged and unresolved; no project license was added.

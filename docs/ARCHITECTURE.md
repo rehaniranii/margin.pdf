@@ -1,6 +1,6 @@
 # Architecture and phase plan
 
-Phases 1 and 2 are implemented. Work remains local; no application service or database
+Phases 1–3 are implemented. Work remains local; no application service or database
 is used. MuPDF is the only PDF engine, with an unresolved owner licensing decision.
 
 ## Source boundaries
@@ -111,10 +111,7 @@ on replacement/unmount, downloads after the browser begins saving. The rail disp
 at most seven page controls plus first/last jumps. History and source bytes remain in
 memory, with no persistence or artificial usage quota. Device limits still apply.
 
-## Remaining phases — not started
-
-**Phase 3:** Added text/images/highlights/rectangles/ink, object selection and transforms,
-extended history, polished zoom/navigation, progress, recoverable cancellation.
+## Remaining phases 4–6 — not started
 
 **Phase 4:** Page organization and utility/conversion jobs. Validate ranges; define and
 disclose forms/annotations/links/bookmarks and signature handling per operation.
@@ -127,3 +124,62 @@ not activated and previews are engine-generated images.
 **Phase 6:** Cross-reader and browser fixture matrix, larger/scanned/malformed documents,
 mobile hardware memory checks, offline edit/export, licensing/distribution review,
 and release assessment. No distribution license has been selected for this project.
+
+## Phase 3 extension (current)
+
+Phases 1–3 are implemented. Existing text remains the default tool. `AddedObject` is
+an explicit union for text, image, highlight, rectangle and ink, each with stable ID,
+source page and a box in displayed page points. Text/objects form one immutable
+`EditPlan` per history frame. Ink stores normalized points inside its box, with its
+line width reserved at the edges. Image objects reference worker-owned assets rather
+than copying image data into every history frame.
+
+`ObjectLayer` handles pointer capture, cancelled gestures, local outline/path previews,
+movement, and corner resizing. It maps pointer coordinates through the actual raster
+extent/origin; it never rebuilds a PDF during pointer movement. A release submits one
+transaction. Image resizing preserves aspect ratio; text resizing retains font size
+and is rejected if content overflows. Arrow keys and numeric fields provide keyboard
+movement and sizing. Text/image/rectangle/highlight creation also has a keyboard
+accessible center-placement action. Draw is inherently a pointer operation; image
+insertion provides an alternative for an existing visual signature.
+
+`added-objects.ts` validates geometry, styles, characters, fit and asset references.
+It appends isolated PDF Form content using the inverse page transform. Fonts, images
+and ExtGState resources are local to that form; page/XObject dictionaries are cloned.
+Highlights use alpha with Multiply blending; rectangles and ink are vector paths.
+JPG/PNG image matrices explicitly account for the downward page Y direction. Added
+text uses real text operators and is searchable. Existing-text removal still goes
+through the Phase 2 verification path before objects are composed above it.
+
+Compilation caches one text-only result keyed by the source text edit plan. Moving
+an object reuses that verified prefix and rebuilds only the object composition pass.
+A text plan change invalidates the prefix; candidate render/parse/validation failures
+leave the committed PDF/history untouched. This deliberately uses one PDF engine and
+adds no dependency. PDF serialization is synchronous inside the dedicated worker.
+Progress reports actual processing stages, not invented percentages.
+
+`image-assets.ts` checks PNG/JPG headers and rejects decoded images beyond 32 million
+pixels before engine decoding. It retains an image handle and an engine-rendered small
+thumbnail. Imported but unplaced images are explicit pending assets. Assets referenced
+by past/current/redo frames stay alive; branching, release and clear drop unused assets.
+Only selected/pending thumbnails get Blob URLs, revoked on replacement/unmount.
+
+Each committed view includes a transferable copy of the compiled PDF and history
+position/length. The interface mirrors the observed immutable plans in memory, plus
+compressed image source buffers. Export downloads those authoritative committed bytes.
+Cancellation terminates the worker, rejects pending commands, discards stale responses,
+and restores a fresh worker from original source, last committed PDF, mirrored history
+and referenced image assets. Restoration opens the last PDF rather than recompiling
+it. Revision values remain consistent so an uncommitted property draft can survive
+recovery. The old page stays visible; recovery failure retains the in-memory checkpoint
+and allows another recovery attempt or saving the last committed PDF. Clear workspace
+is the separate, explicitly destructive in-memory reset.
+
+Zoom changes preserve a viewport anchor. Width/whole-page fitting, typed zoom, validated
+page jumps, PageUp/PageDown, Pan and temporary Space-pan extend navigation. Rendering
+retains its previous raster limits; 400% CSS zoom can magnify a capped raster. Working
+source, current bytes, one text prefix, one recovery PDF, asset data, native image handles,
+and compact history coexist in memory. No document content is persisted in browser
+storage. The preexisting theme preference remains separate localStorage UI state.
+
+Remaining work starts at Phase 4. No page utilities/conversions, service worker or release verification were started.

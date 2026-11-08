@@ -1,7 +1,7 @@
 # margin.pdf
 
 A free, standalone PDF workspace built with React, TypeScript, Vite, and a local
-MuPDF WebAssembly worker. **Phases 1 and 2 are implemented.** Existing-text editing
+MuPDF WebAssembly worker. **Phases 1–3 are implemented.** Existing-text editing
 is the primary workflow. No backend, accounts, analytics, payments, usage quotas,
 or external runtime services are used. Nothing has been deployed.
 
@@ -14,7 +14,8 @@ npm ci
 npm run dev
 ```
 
-Open the printed localhost URL. A labeled two-page sample is generated in memory.
+Open the printed localhost URL and choose **Open editor** (or go to `/#/edit`).
+A labeled two-page sample is generated in memory in the editor.
 Or choose **Open PDF** to use your own local PDF.
 
 1. Select a blue text region on the page. Keyboard focus and Enter also select it.
@@ -68,6 +69,52 @@ sanitization: metadata, attachments, unused resources, and other occurrences are
 its promise. Editing PDFs can invalidate digital signatures; signature detection and
 operation-specific handling remain scheduled for Phase 4.
 
+## Added objects and navigation
+
+The editor defaults to **Edit existing text**. The other tools add objects above the
+page content; they do not replace or erase original text.
+
+- **Add text:** click/drag a box, or use Place at page center, then edit its content,
+  font, size and color. Basic Latin text and line breaks are supported. Overflow is
+  rejected until the box is enlarged or the text/font size is reduced.
+- **Add image:** choose a local JPG/PNG and click the page, or use Place at page center.
+  Proportions stay locked during corner/numeric resizing. Replace image changes its
+  content while keeping it an editable object.
+- **Highlight / Rectangle:** drag to place, or place at center. Adjust color and
+  opacity for highlights; color and line width for outlined rectangles.
+- **Draw:** use mouse, pen, or touch. Each stroke is an editable object. Choose Note
+  or Visual signature as its purpose. A visual signature is a drawing, not
+  certificate-based digital signing.
+- **Select objects:** move by dragging; resize with a corner; edit exact position and
+  size in points; change contextual properties; delete. Arrows move by 1 point,
+  Shift+arrows by 10. Delete/Backspace deletes outside text inputs.
+
+Dragging shows a temporary outline/path. Releasing commits the model and renders
+its real PDF result. Pointer cancellation or Escape discards an unfinished gesture.
+All applied object and text edits share undo/redo. Images needed by history remain
+available until that history branch is discarded.
+
+Zoom supports 10–400%, width/page fitting, and preservation of the viewed area.
+Pan drags the page; holding Space temporarily pans outside text inputs. Use the page
+number field or PageUp/PageDown for navigation. Page ranges and zoom values are
+validated. Touch hardware and broad browser testing remain release-verification work.
+
+**Cancel operation** terminates the active worker and restores the last applied PDF,
+edit history, and referenced image assets from memory. The visible workspace stays
+in place during recovery. Export downloads the same in-memory committed bytes used
+for recovery, so the last applied PDF can still be saved after a worker error. Clear
+workspace deliberately discards everything. Neither snapshots nor image assets are
+written to browser storage.
+
+Added objects export as PDF page content. Reopening the exported file does not restore
+object handles or session history. Exported transparent graphics can also trigger the
+existing-text editor’s conservative complex-appearance checks on reopening; the
+current working session keeps its editable source references. Added text remains searchable; images and drawings
+remain visual page content. There is no object rotation, image cropping, layer/reorder
+panel, rich typography, or pressure-sensitive ink in this phase. Ink strokes resize as
+paths with a fixed line width; they are individually selected/deleted. No signature
+certificate, identity, or tamper-evidence validation is provided.
+
 ## Local data and current limits
 
 Working files, edit plans, and history stay in memory. Reloading or clearing discards
@@ -80,14 +127,18 @@ privacy hardening, disconnected production tests, and broad release verification
 remain Phases 5/6. This is not a release-ready or offline-ready build.
 
 Rendering has an 8-million-pixel budget and bounded dimensions/DPR. Source snapshots,
-compiled bytes, engine state, and edit-plan history coexist in memory; very large or
+compiled recovery bytes, image assets, engine state, and edit-plan history coexist in memory; very large or
 malformed PDFs can exceed browser/device limits. There is no imposed file-size or
-usage quota. Clear workspace cancels by terminating the worker and discards the
-in-memory document. Inactive page tiles currently show numbers; the selected page
-has a real thumbnail. Added objects, page utilities/conversions, and password entry
+usage quota. Each added image has a 32-million-pixel decoding budget, checked from
+its header before decoding to bound native memory. This is an application memory
+safeguard, not a universal browser limit or per-user quota. Larger images must be resized
+locally first. Cancel restores the last committed workspace; Clear workspace terminates the worker
+and deliberately discards the in-memory document. Inactive page tiles currently show numbers; the selected page
+has a real thumbnail. Page utilities/conversions and password entry
 are not implemented. No placeholder controls imply that they are.
 
-See [architecture](docs/ARCHITECTURE.md), [Phase 2 verification](docs/PHASE2-VERIFICATION.md),
+See [architecture](docs/ARCHITECTURE.md), [Phase 3 verification](docs/PHASE3-VERIFICATION.md),
+[Phase 2 verification](docs/PHASE2-VERIFICATION.md),
 [historical Phase 1 verification](docs/VERIFICATION.md), and
 [engine/licensing decision](docs/ENGINE-DECISION.md).
 
