@@ -9,3 +9,40 @@
 button,input,select,textarea{font-family:inherit}input,select{font-size:12px;color:inherit}input:focus-visible,select:focus-visible{outline:3px solid #719eff;outline-offset:3px}.page-paper{position:relative}.page-bitmap{display:block;width:100%;height:100%}.text-regions{position:absolute;inset:0}.text-regions .text-region{position:absolute;display:block;padding:0;border:1px solid transparent;border-radius:1px;background:transparent;min-width:2px;min-height:2px;cursor:text;transition:none}.text-regions.show-regions .text-region{border-color:#2859cf55;background:#2859cf03}.text-regions .text-region:hover:not(:disabled){border-color:#2859cf;background:#2859cf12;outline:1px solid #2859cf}.text-regions .text-region.selected{border:1px solid #2859cf;outline:2px solid #2859cf;outline-offset:1px;background:#2859cf12}.text-regions.show-regions .unsupported-region{border-color:#b1843f55;border-style:dashed}.text-regions .unsupported-region:hover:not(:disabled),.text-regions .unsupported-region.selected{border-color:#a46e27;outline-color:#a46e27;background:#b1843f12;cursor:help}.text-regions .text-region:focus-visible{outline:3px solid #2859cf;outline-offset:2px}.text-regions.show-regions .changed-region{border-color:#39865b99}.history-actions{display:flex;align-items:center;gap:6px;flex:none}.history-actions>button{font-size:12px;padding:5px 9px;background:transparent;border-color:transparent}.history-actions .text-button{margin-left:5px}.regions-toggle{display:flex;align-items:center;gap:6px;font-size:10px;color:#657389;white-space:nowrap}.regions-toggle input{accent-color:#2859cf;margin:0}.select-prompt{margin:25px 0;font-size:12px;color:#657389;line-height:1.8}.select-prompt p:first-child{font-size:15px;color:#31425c}.style-fields{display:grid;grid-template-columns:minmax(0,1fr) 75px;gap:12px;margin-top:18px}.style-fields input,.style-fields select{width:100%;min-width:0;border:1px solid #c9d3e1;border-radius:5px;padding:9px 8px;background:#fff}.color-field{display:flex;align-items:center;gap:10px;margin-top:18px;font-size:11px}.color-field label{margin:0 auto 0 0}.color-field input{width:31px;height:27px;padding:2px;border:1px solid #c9d3e1;border-radius:4px;background:white}.color-field span{font-size:10px;color:#657389}.fit-policy{background:#f3f6fb;border-radius:5px;padding:12px;font-size:10px;line-height:1.7;margin:17px 0}.fit-policy strong{font-weight:600}.fit-policy p{color:#657389;margin:5px 0 0}.inline-error{color:#93473d;font-size:11px;line-height:1.7}.discard-button{margin-top:9px}.selection-info p{overflow-wrap:anywhere}.properties{max-height:calc(100dvh - 180px);overflow:auto}.document-area{min-height:0}.page-stage{min-height:400px}.viewer-toolbar{flex-wrap:wrap;padding-top:8px;padding-bottom:8px}.viewer-footer{flex:none}
 @media(max-width:1100px){.viewer-toolbar{gap:3px}.regions-toggle{font-size:9px}.viewer-controls{gap:4px}.viewer-controls button{padding:4px 5px}}
 @media(max-width:760px){.document-bar{height:auto;min-height:67px;padding-top:8px;padding-bottom:8px;flex-wrap:wrap;gap:4px}.document-identity strong{max-width:53vw}.history-actions{margin-left:auto}.history-actions>button{font-size:10px;padding:4px 7px}.history-actions .text-button{font-size:10px}.viewer-toolbar{justify-content:center;flex-direction:column;gap:6px;padding:10px 4px}.viewer-controls{gap:5px}.properties{max-height:none;overflow:visible}.page-stage{min-height:410px}.selection-info{margin-top:22px}.regions-toggle{font-size:10px}}
+/* Theme toggle (shared by homepage and editor) */
+.theme-toggle{width:38px;height:38px;padding:0!important;border-radius:10px;display:grid;place-items:center;border:1px solid var(--line);color:var(--muted);overflow:hidden;flex:none}
+.theme-toggle:hover:not(:disabled){color:var(--accent)}
+.theme-toggle svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;grid-area:1/1;transition:transform .5s cubic-bezier(.5,1.6,.4,1),opacity .3s}
+.theme-toggle .moon{transform:rotate(-90deg) scale(0);opacity:0}
+[data-theme=dark] .theme-toggle .sun{transform:rotate(90deg) scale(0);opacity:0}
+[data-theme=dark] .theme-toggle .moon{transform:none;opacity:1}
+/* Dark editor: :where() keeps original specificity so component rules still win where they did before. The PDF page itself stays white. */
+:root[data-theme=dark]{color-scheme:dark;color:#d5dce8;background:#0d1320;--accent:#4a76e8;--muted:#9aa7bb;--line:#243046}
+:where([data-theme=dark]) body{background:#0d1320}
+:where([data-theme=dark]) button,:where([data-theme=dark]) .secondary,:where([data-theme=dark]) .app-header,:where([data-theme=dark]) .properties,:where([data-theme=dark]) .foundation-note{background:#151d2d}
+:where([data-theme=dark]) button:hover:not(:disabled){background:#1d2b4d}
+:where([data-theme=dark]) .brand{color:#eef2f9}
+:where([data-theme=dark]) .brand-mark,:where([data-theme=dark]) .text-icon{background:#1d2b4d}
+:where([data-theme=dark]) .brand-mark span{color:#8aa6ee}
+:where([data-theme=dark]) .local-badge,:where([data-theme=dark]) .edited-badge{color:#7cc896}
+:where([data-theme=dark]) .document-bar,:where([data-theme=dark]) .page-rail{background:#121a29}
+:where([data-theme=dark]) .document-area{background:#0d1320}
+:where([data-theme=dark]) .viewer-toolbar,:where([data-theme=dark]) .viewer-footer{background:#121a29;border-color:#243046}
+:where([data-theme=dark]) .toolbar-divider{border-color:#33415a}
+:where([data-theme=dark]) .viewer-controls,:where([data-theme=dark]) .viewer-footer,:where([data-theme=dark]) .page-label,:where([data-theme=dark]) .preview-label,:where([data-theme=dark]) .mini-page>span,:where([data-theme=dark]) .empty-page,:where([data-theme=dark]) .regions-toggle,:where([data-theme=dark]) .select-prompt{color:#9aa7bb}
+:where([data-theme=dark]) .rail-note,:where([data-theme=dark]) .rail-empty,:where([data-theme=dark]) .panel-title p,:where([data-theme=dark]) .property-row span,:where([data-theme=dark]) .field-help,:where([data-theme=dark]) .scope-note p,:where([data-theme=dark]) .foundation-note>span{color:#7d8aa0}
+:where([data-theme=dark]) .foundation-note,:where([data-theme=dark]) .select-prompt p:first-child{color:#d5dce8}
+:where([data-theme=dark]) .rail-heading>span{background:#1b2436}
+:where([data-theme=dark]) .mini-page{background:#1e283b;border-color:#33415a}
+:where([data-theme=dark]) .file-symbol{color:#9aa7bb;border-color:#33415a}
+:where([data-theme=dark]) .sample-badge{color:#8aa6ee;border-color:#2a3d6b}
+:where([data-theme=dark]) .edited-badge{border-color:#24412f}
+:where([data-theme=dark]) .document-page{box-shadow:0 4px 24px #00000080}
+:where([data-theme=dark]) .selection-info{background:#162039;border-color:#2a3d6b}
+:where([data-theme=dark]) textarea,:where([data-theme=dark]) .style-fields input,:where([data-theme=dark]) .style-fields select,:where([data-theme=dark]) .color-field input{background:#0f1626;border-color:#33415a;color:#e3e8f1}
+:where([data-theme=dark]) .verification{background:#15281f;border-color:#24412f;color:#7cc896}
+:where([data-theme=dark]) .fit-policy,:where([data-theme=dark]) .unsupported{background:#1b2436}
+:where([data-theme=dark]) .error-banner{background:#3a1c1a;color:#f2a79c}
+:where([data-theme=dark]) .notice-banner{background:#33290f;color:#e9c97a}
+:where([data-theme=dark]) .inline-error{color:#f2a79c}
+:where([data-theme=dark]) .empty-mark{color:#3a5596}

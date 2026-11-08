@@ -6,6 +6,7 @@ import { PagePreview } from './components/PagePreview'
 import { PageRail } from './components/PageRail'
 import { TextProperties } from './components/TextProperties'
 import { downloadPdf } from './export/download'
+import { ThemeToggle } from './theme'
 
 export default function App() {
   const client = useRef<PdfWorkerClient | null>(null)
@@ -137,7 +138,7 @@ export default function App() {
     <header className="app-header">
       <a href="./" className="brand" aria-label="margin.pdf home"><span className="brand-mark" aria-hidden="true">m<span>.</span></span>margin<span className="brand-extension">.pdf</span></a>
       <div className="local-badge"><span/>On your device</div>
-      <div className="header-actions"><button className="secondary" onClick={() => input.current?.click()} disabled={!!busy || dirty}><span aria-hidden="true">↥</span> Open PDF</button><button className="primary" disabled={!document || !!busy || dirty} onClick={exportPdf} title={dirty ? 'Apply or discard text changes before export' : 'Download the PDF shown in the preview'}>Export PDF <span aria-hidden="true">↓</span></button></div>
+      <div className="header-actions"><ThemeToggle/><button className="secondary" onClick={() => input.current?.click()} disabled={!!busy || dirty}><span aria-hidden="true">↥</span> Open PDF</button><button className="primary" disabled={!document || !!busy || dirty} onClick={exportPdf} title={dirty ? 'Apply or discard text changes before export' : 'Download the PDF shown in the preview'}>Export PDF <span aria-hidden="true">↓</span></button></div>
       <input ref={input} type="file" accept="application/pdf,.pdf" hidden onChange={event => { void openFile(event.target.files?.[0]); event.target.value = '' }}/>
     </header>
     <div className="document-bar"><div className="document-identity"><span className="file-symbol" aria-hidden="true">PDF</span><strong title={document?.source.name}>{document?.source.name ?? 'No document open'}</strong>{document?.source.kind === 'sample' && <span className="sample-badge">Sample</span>}{document && document.edits.length > 0 && <span className="edited-badge">{document.edits.length} edited</span>}</div><div className="history-actions"><button aria-label="Undo document change" title="Undo (Ctrl/Cmd+Z)" disabled={!!busy || !view?.canUndo || dirty} onClick={() => history('undo')}>↶ <span>Undo</span></button><button aria-label="Redo document change" title="Redo (Ctrl/Cmd+Shift+Z)" disabled={!!busy || !view?.canRedo || dirty} onClick={() => history('redo')}>↷ <span>Redo</span></button><button className="text-button" onClick={clear}>Clear workspace{busy ? ' / cancel' : ''}</button></div></div>
