@@ -18,7 +18,8 @@ Open the printed localhost URL and choose **Open editor** (or go to `/#/edit`).
 A labeled two-page sample is generated in memory in the editor.
 Or choose **Open PDF** to use your own local PDF.
 
-1. Double-click a blue text region to edit directly on the page (keyboard: focus it and press Enter).
+1. Double-click any text to edit it directly on the page (keyboard: focus it and press Enter).
+   Editable text is outlined on hover; **Show editable text** outlines all of it.
 2. Select, copy, paste and type normally in the on-page field. Enter applies; Escape cancels.
 3. Use the properties panel when you want to change font, size or color. It shares the same draft.
 4. Choose **Export PDF** to download the actual resulting PDF. Original files stay unchanged.
@@ -58,23 +59,30 @@ cross-platform runtime. They were not suppressed, and production browser checks 
 ## Supported text editing
 
 - Unencrypted, digitally generated PDFs with simple, opaque, horizontal source text.
-- Single-style lines or spans with unique, positioned basic Latin glyphs.
+- Single-style lines or spans with unique, positioned basic Latin glyphs. Typographic
+  ligatures (ff, fi, fl, ffi, ffl) are edited as their letters, and extraction-inserted
+  spaces that are not painted are ignored.
 - Intrinsic page rotations of 0/90/180/270 degrees, nonzero CropBoxes, and UserUnit scaling.
 - Replacement text in printable basic Latin (U+0020–U+007E): letters, numbers,
   spaces, punctuation. No accents, emoji, complex scripts, or line breaks yet.
-- Helvetica, Times Roman, or Courier replacements, with size and RGB color controls.
+- The 12 standard PDF fonts (Helvetica, Times, Courier, each regular/bold/italic/bold
+  italic). The closest one to the original font name is preselected.
 - Fixed layout. Replacement width and glyph bounds must fit the original span;
   overflow is rejected. Shorten the text or reduce its size. Empty text removes it.
 - Verified removal before insertion, searchable replacement, accurate PDF preview,
   export, multiple edits across pages, and undo/redo with history branching.
 
 The engine checks both the original text area and replacement ink against neighboring
-text. Amber regions explain why they are view-only. Clipped glyphs, special encodings,
-vertical/skewed/stretched text, overlapping graphics/text/links/forms, transparency,
-layers, repaired PDFs, and pending page redactions can prevent editing. A simple,
-opaque rectangular background drawn behind the entire span is preserved and allowed.
-Fully containing rectangular clips (including the CropBox/Form bounds) are allowed;
-partial or unusual clips are rejected. Mixed styles may be exposed as separate spans.
+text. Amber regions explain why they are view-only. Effects are judged **per line, not
+per page**: no-op transparency groups, rectangular clips, optional-content layers,
+gradients, images and shapes elsewhere on the page, and anything painted *behind* the
+text (images, gradients, shapes) do not block editing, because removal leaves images and
+line art untouched and the replacement is drawn on top as the original was. A line is
+view-only when it is itself drawn with transparency, a blend mode, a soft mask, a pattern,
+a non-rectangular or partial clip, or when an image, graphic, outlined text or invisible
+(OCR) text is painted *over* it. Special encodings, vertical/skewed/stretched text,
+overlapping text/links/forms, repaired PDFs and pending page redactions also prevent
+editing. Mixed styles may be exposed as separate spans.
 
 Embedded/subset fonts are **not reused**. The chosen replacement font may look different.
 Unsupported text is never silently substituted. No full-page rasterization or opaque
@@ -133,9 +141,10 @@ certificate, identity, or tamper-evidence validation is provided.
 
 ## Page tools and conversions
 
-Choose **Page tools** or **Organize** in the page rail. Homepage tool links open the
-corresponding utility directly, with file selection rather than silently adding the
-sample. Inputs, page plans and results are held in a separate worker in memory.
+Choose **Page tools** in the editor's tool row. Each tool also has its own page
+(`#/merge`, `#/split`, `#/organize`, `#/watermark`, `#/page-numbers`, `#/images-to-pdf`,
+`#/pdf-to-images`, `#/compress`, `#/redact`) with a drop zone, rather than silently adding the
+sample. A file dropped on the homepage is handed to the chosen tool in memory only. Inputs, page plans and results are held in a separate worker in memory.
 Opening from an editor uses its last committed PDF, including text and added objects.
 
 - **Organize:** move pages earlier/later, rotate in 90-degree clockwise steps, delete,
@@ -155,6 +164,17 @@ Opening from an editor uses its last committed PDF, including text and added obj
   in the selected order, with a configurable starting number; total counts selected
   pages. Oversized or unsupported text is rejected. Stamps append above page content
   and can overlap it, so inspect the result.
+- **Compress:** rewrites the source file itself, so links, bookmarks and forms are kept.
+  *Lossless* only repacks objects, streams and fonts. *Balanced* / *Smallest* also re-encode
+  8-bit gray/RGB photos as JPEG, capped at 2200 / 1400 px on the long edge, and only when
+  that is at least 10% smaller. Masked, transparent, indexed and CMYK images are untouched.
+  The result reports before/after size.
+- **Redact:** finds terms (one per line; spaces also match line breaks), email addresses
+  and phone numbers in page text, then applies true redaction: matched characters are
+  removed from the content stream, overlapping image pixels are blacked out, and black
+  boxes are drawn. The saved result is reopened and searched again; any remaining match
+  fails the operation. Scanned (image-only) text, metadata, bookmarks, form values and
+  attachments are not searched. Files with pre-existing redaction marks are refused.
 
 PDF generation shows the first page of the actual result and offers Download PDF or
 Open result in editor. **Generation leaves the current editor unchanged. Opening a

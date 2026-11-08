@@ -5,10 +5,13 @@ import { imageDimensions } from './image-assets'
 import { openPdf, render } from './mupdf-adapter'
 import { appendPageForm } from './page-form'
 import { boundedScale } from '../geometry/page'
+import { compressLevels, compressSaveOptions, findOnPage, recompressImages, redactText, redactionPattern } from './rewrite'
 
 const literal=(text:string)=>`(${text.replace(/[\\()]/g,'\\$&')})`
 const rgb=(color:string)=>[1,3,5].map(i=>parseInt(color.slice(i,i+2),16)/255).join(' ')
-function save(doc:mupdf.PDFDocument) { const buffer=doc.saveToBuffer('garbage=4,compress');try{return buffer.asUint8Array().slice()}finally{buffer.destroy()} }
+function save(doc:mupdf.PDFDocument,options='garbage=4,compress') { const buffer=doc.saveToBuffer(options);try{return buffer.asUint8Array().slice()}finally{buffer.destroy()} }
+
+export const formatSize=(bytes:number)=>bytes<1024*1024?`${Math.max(1,Math.round(bytes/1024))} KB`:`${(bytes/1024/1024).toFixed(1)} MB`
 
 export class PdfUtilities {
   private sources=new Map<string,{bytes:Uint8Array<ArrayBuffer>;info:UtilitySource}>()
@@ -32,6 +35,7 @@ export class PdfUtilities {
   release(id:string){this.sources.delete(id)}
   private source(id:string,kind:'pdf'|'image') {const value=this.sources.get(id);if(!value||value.info.kind!==kind) throw new Error('A source is missing. Add the file again.');return value}
   build(spec:UtilitySpec):UtilityArtifact {
+    if(spec.kind==='compress'||spec.kind==='redact') return this.rewrite(spec)
     const doc=new mupdf.PDFDocument()
     try {
       if(spec.kind==='pages') this.assemble(doc,spec.pages,spec.acceptFlattening)
@@ -42,6 +46,41 @@ export class PdfUtilities {
       try {return {bytes:bytes.buffer,preview:render(reopened,0,0.65,1),pageCount:reopened.countPages(),plan:spec.kind==='pages'?structuredClone(spec.pages):undefined}}
       finally{reopened.destroy()}
     } finally {doc.destroy()}
+  }
+  private rewrite(spec:Extract<UtilitySpec,{kind:'compress'|'redact'}>):UtilityArtifact {
+    const source=this.source(spec.source,'pdf'),doc=openPdf(source.bytes)
+    try {
+      let summary='',previewPage=0,pattern:RegExp|undefined
+      if(spec.kind==='compress') {
+        if(!['lossless','balanced','small'].includes(spec.level)) throw new Error('Choose a compression level.')
+        const images=spec.level==='lossless'?0:recompressImages(doc,compressLevels[spec.level],this.progress)
+        if(images) summary=`${images} ${images===1?'image':'images'} re-encoded. `
+      } else {
+        if(!Array.isArray(spec.terms)||!Array.isArray(spec.patterns)||spec.terms.some(term=>typeof term!=='string')) throw new Error('The redaction request is malformed.')
+        const terms=spec.terms.map(term=>term.trim()).filter(Boolean)
+        if(terms.length>200||terms.some(term=>term.length>200)||!spec.patterns.every(kind=>kind==='email'||kind==='phone')) throw new Error('Use up to 200 search terms of at most 200 characters each.')
+        if(!terms.length&&!spec.patterns.length) throw new Error('Enter at least one word or phrase, or pick emails or phone numbers.')
+        pattern=redactionPattern(terms,spec.patterns,spec.matchCase)
+        const result=redactText(doc,pattern,this.progress)
+        if(!result.matches) throw new Error('Nothing matched, so nothing was redacted. Check the spelling, or turn off “Match case”. Scanned pages contain no searchable text.')
+        previewPage=result.pages[0]
+        summary=`${result.matches} ${result.matches===1?'match':'matches'} removed on ${result.pages.length} ${result.pages.length===1?'page':'pages'}. `
+      }
+      this.progress?.('Saving and checking the result…')
+      const bytes=save(doc,spec.kind==='compress'?compressSaveOptions:'garbage=4,compress'),reopened=openPdf(bytes)
+      try {
+        if(pattern) for(let index=0;index<reopened.countPages();index++){
+          // Verify against the saved file itself: redacted text must not be extractable any more.
+          const page=reopened.loadPage(index)
+          try{if(findOnPage(page,pattern).length) throw new Error(`Redaction could not be verified on page ${index+1}: matching text is still extractable. Nothing was saved.`)}finally{page.destroy()}
+        }
+        if(spec.kind==='compress'){
+          const before=source.bytes.byteLength,after=bytes.byteLength,saved=Math.round((1-after/before)*100)
+          summary+=after<before?`${formatSize(before)} → ${formatSize(after)}, ${saved}% smaller.`:`${formatSize(before)} → ${formatSize(after)}. This file was already compact; keep the original.`
+        }
+        return {bytes:bytes.buffer,preview:render(reopened,previewPage,0.65,1),pageCount:reopened.countPages(),summary:summary.trim()}
+      } finally{reopened.destroy()}
+    } finally{doc.destroy()}
   }
   private assemble(output:mupdf.PDFDocument,pages:PlannedPage[],accepted:boolean) {
     if(!accepted) throw new Error('Review and accept the flattening and signature notice before generating a PDF.')

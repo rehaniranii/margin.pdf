@@ -1,76 +1,62 @@
-import { ThemeToggle } from './theme'
-import './home.css'
+import { useState } from 'react'
+import type { CSSProperties } from 'react'
+import { DropZone } from './components/DropZone'
+import { Icon, SiteFooter, SiteHeader } from './components/SiteHeader'
+import { handOff } from './handoff'
+import { categories, toolHref, tools, type Tool } from './tools'
+import './site.css'
 
-// Only tools with a working route get a link; the rest are labelled honestly until they ship.
-const tools = [
-  { name: 'Edit text', blurb: 'Change existing text right on the page.', href: '#/edit', icon: 'M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4' },
-  { name: 'Merge', href: '#/edit?tool=merge', blurb: 'Combine several PDFs into one file.', icon: 'M6 4v6a4 4 0 0 0 4 4h4M18 4v6a4 4 0 0 1-4 4M12 14v6' },
-  { name: 'Split', href: '#/edit?tool=extract', blurb: 'Pull pages or ranges into new files.', icon: 'M12 4v6M12 10l-6 10M12 10l6 10' },
-  { name: 'Organize', href: '#/edit?tool=organize', blurb: 'Reorder, delete and rotate pages.', icon: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z' },
-  { name: 'Rotate', href: '#/edit?tool=organize', blurb: 'Turn pages the right way up.', icon: 'M20 12a8 8 0 1 1-3-6.2M20 4v5h-5' },
-  { name: 'Image to PDF', href: '#/edit?tool=from-images', blurb: 'Turn JPG and PNG images into a PDF.', icon: 'M4 5h16v14H4zM4 16l5-5 4 4 2-2 5 5M15 9h.01' },
-  { name: 'PDF to image', href: '#/edit?tool=to-images', blurb: 'Export pages as crisp images.', icon: 'M6 3h8l4 4v14H6zM14 3v4h4M9 17l2-3 2 2 2-3' },
-  { name: 'Watermark', href: '#/edit?tool=watermark', blurb: 'Stamp text across every page.', icon: 'M12 3s6 7 6 11a6 6 0 0 1-12 0c0-4 6-11 6-11z' },
-  { name: 'Page numbers', href: '#/edit?tool=numbers', blurb: 'Add numbers at the center or bottom.', icon: 'M6 3h12v18H6zM10 17h4M12 7v6' },
+const notes = [
+  { title: 'Nothing is uploaded', body: 'A PDF engine compiled to WebAssembly runs inside this tab. Files are read from your disk and written back to it. There is no server to send them to.' },
+  { title: 'Free, without the catch', body: 'No account, no paywall, no daily limit, no watermark added to your work. The only limit is your device’s memory.' },
+  { title: 'Works offline', body: 'After the first visit the app keeps its own files, so it opens without a connection. Your documents are never cached.' },
 ]
-
-const promises = [
-  { title: 'Never uploaded', body: 'A WebAssembly engine opens and processes your PDFs inside this browser tab. Your files go nowhere else.' },
-  { title: 'No account, no quotas', body: 'No sign-up, no paywall, no daily quota, no automatic watermark. Browser and device memory limits still apply.' },
-  { title: 'No tracking', body: 'There are no analytics or third-party scripts. Working documents stay in memory; the browser stores only app files and your theme preference.' },
-]
-
-const Icon = ({ d }: { d: string }) => <svg viewBox="0 0 24 24" aria-hidden="true"><path d={d} pathLength={1}/></svg>
-
-
-function spotlight(event: React.PointerEvent<HTMLElement>) {
-  const box = event.currentTarget.getBoundingClientRect()
-  event.currentTarget.style.setProperty('--x', `${event.clientX - box.left}px`)
-  event.currentTarget.style.setProperty('--y', `${event.clientY - box.top}px`)
-}
+const delay = (ms: number) => ({ '--d': `${ms}ms` }) as CSSProperties
 
 export default function Home() {
-  return <div className="home">
-    <header className="home-header">
-      <a href="#/" className="brand" aria-label="margin.pdf home"><span className="brand-mark" aria-hidden="true">m<span>.</span></span>margin<span className="brand-extension">.pdf</span></a>
-      <nav><a href="#tools">Tools</a><a href="#privacy">Privacy</a><ThemeToggle/><a className="home-cta small" href="#/edit">Open editor</a></nav>
-    </header>
+  const [file, setFile] = useState<File>()
+  const isImage = !!file && file.type.startsWith('image/')
+  const choices = tools.filter(tool => tool.accepts === (isImage ? 'image' : 'pdf'))
+  function choose(tool: Tool) { if (file) handOff(file); location.hash = toolHref(tool) }
 
+  return <div className="site home">
+    <SiteHeader/>
     <main>
       <section className="hero">
         <div className="hero-copy">
-          <p className="eyebrow rise"><span/>Free · Private · In your browser</p>
-          <h1 className="rise" style={{ '--d': '80ms' } as React.CSSProperties}>Every PDF tool you need.<br/><em>None of the uploading.</em></h1>
-          <p className="lede rise" style={{ '--d': '160ms' } as React.CSSProperties}>Edit, merge, split and convert PDFs on your own device. Free, no account, and your files never leave your computer.</p>
-          <div className="hero-actions rise" style={{ '--d': '240ms' } as React.CSSProperties}><a className="home-cta" href="#/edit">Start editing <span aria-hidden="true">→</span></a><a className="home-ghost" href="#tools">See all tools</a></div>
+          <p className="kicker rise">Free PDF tools · in your browser</p>
+          <h1 className="rise" style={delay(80)}>PDF tools that never ask for your file.</h1>
+          <p className="lede rise" style={delay(160)}>Edit, merge, split, stamp and convert PDFs right here. Everything runs on your own device, so there is nothing to upload and nothing to sign up for.</p>
+          <div className="hero-actions rise" style={delay(240)}><a className="cta" href="#/edit">Open the editor <span aria-hidden="true">→</span></a><a className="ghost" href="#/#tools">Browse tools</a></div>
         </div>
-        <div className="hero-art" aria-hidden="true">
-          <div className="sheet back"/><div className="sheet mid"/>
-          <div className="sheet front"><i/><i/><i className="short"/><i className="edit"/><i/><i className="short"/></div>
-          <div className="chip lock">● Processed locally</div><div className="chip tool">✎ Edit text</div><div className="chip page">Page 1 / 2</div>
+
+        <div className="sheet rise" style={delay(200)}>
+          {!file ? <DropZone label="Drop a PDF or images" hint="We’ll show what you can do with it. Nothing leaves this tab." accept="application/pdf,.pdf,image/png,image/jpeg,.png,.jpg,.jpeg" onFiles={files => setFile(files[0])}/>
+            : <div className="chooser" aria-live="polite">
+              <p className="chooser-file"><strong title={file.name}>{file.name}</strong><button className="link" onClick={() => setFile(undefined)}>Choose another</button></p>
+              <p className="chooser-ask">What would you like to do?</p>
+              <ul>{choices.map((tool, i) => <li key={tool.id} style={delay(i * 35)}><button onClick={() => choose(tool)}><span className="tool-icon"><Icon d={tool.icon}/></span>{tool.name}<span className="go" aria-hidden="true">→</span></button></li>)}</ul>
+            </div>}
         </div>
       </section>
 
-      <section id="tools" className="tools">
-        <h2 className="reveal">Tools</h2>
-        <p className="section-lede reveal">The ones you reach for every day, all running on your device.</p>
-        <div className="tool-grid">
-          {tools.map((tool, i) => {
-            const body = <><span className="tool-icon"><Icon d={tool.icon}/></span><strong>{tool.name}</strong><span className="tool-blurb">{tool.blurb}</span>{!tool.href && <span className="soon">Soon</span>}</>
-            const style = { '--d': `${i * 40}ms` } as React.CSSProperties
-            return tool.href
-              ? <a key={tool.name} className="tool-card reveal" style={style} href={tool.href} onPointerMove={spotlight}>{body}</a>
-              : <div key={tool.name} className="tool-card reveal is-soon" style={style} aria-disabled="true">{body}</div>
-          })}
+      <section id="tools" className="index">
+        <header className="section-head reveal"><h2>Tools</h2><p>Every tool works on your device. Pick one, or open the editor and use them together.</p></header>
+        <div className="index-grid">
+          {categories.map(category => <div key={category.id} className="index-group reveal">
+            <h3>{category.id}<small>{category.note}</small></h3>
+            <ul>{tools.filter(tool => tool.category === category.id).map(tool => <li key={tool.id}>
+              <a href={toolHref(tool)}><span className="tool-icon"><Icon d={tool.icon}/></span><span className="entry"><strong>{tool.name}</strong><small>{tool.blurb}</small></span><span className="leader" aria-hidden="true"/><span className="go" aria-hidden="true">→</span></a>
+            </li>)}</ul>
+          </div>)}
         </div>
       </section>
 
-      <section id="privacy" className="privacy">
-        <h2 className="reveal">Private by design</h2>
-        <div className="promise-grid">{promises.map((p, i) => <div key={p.title} className="promise reveal"><span className="promise-num" aria-hidden="true">{i + 1}</span><h3>{p.title}</h3><p>{p.body}</p></div>)}</div>
+      <section id="privacy" className="fine-print">
+        <header className="section-head reveal"><h2>The fine print</h2><p>Usually this is where the catch is. Here it’s just how the app works.</p></header>
+        <ol>{notes.map(note => <li key={note.title} className="reveal"><h3>{note.title}</h3><p>{note.body}</p></li>)}</ol>
       </section>
     </main>
-
-    <footer className="home-footer"><span>margin.pdf</span><span>No uploads. No account.</span></footer>
+    <SiteFooter/>
   </div>
 }

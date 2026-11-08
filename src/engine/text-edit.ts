@@ -1,11 +1,11 @@
 import * as mupdf from 'mupdf'
-import type { Rect, TextEdit } from '../model/document'
+import type { Rect, ReplacementFont, TextEdit } from '../model/document'
 import { contains, intersects, union } from '../geometry/affine'
 import { openPdf } from './mupdf-adapter'
 import { analyzePage, assertGlyphs, basicLatin, paintedGlyphs, safeBackdrop } from './text-analysis'
 import type { Analysis, AnalyzedRegion, Glyph } from './text-analysis'
 
-export const REPLACEMENT_FONTS = ['Helvetica', 'Times-Roman', 'Courier'] as const
+export const REPLACEMENT_FONTS: readonly ReplacementFont[] = ['Helvetica', 'Helvetica-Bold', 'Helvetica-Oblique', 'Helvetica-BoldOblique', 'Times-Roman', 'Times-Bold', 'Times-Italic', 'Times-BoldItalic', 'Courier', 'Courier-Bold', 'Courier-Oblique', 'Courier-BoldOblique']
 export type PreparedEdit = { edit: TextEdit; region: AnalyzedRegion; ink: Rect; glyphs: Pick<Glyph, 'unicode' | 'origin'>[]; command: string }
 const number = (value: number) => Number(value.toFixed(6)).toString()
 const literal = (value: string) => `(${value.replace(/[\\()]/g, '\\$&')})`

@@ -7,9 +7,13 @@ function initialTheme(): Theme {
   return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 }
 
-// Theme lives on <html data-theme> so the homepage and editor share it.
+// Applied at import, before the first render, so dark-mode visitors never see a light flash.
+const startTheme = initialTheme()
+document.documentElement.dataset.theme = startTheme
+
+// Theme lives on <html data-theme> so every page shares it.
 export function ThemeToggle() {
-  const [theme, setTheme] = useState(initialTheme)
+  const [theme, setTheme] = useState(() => document.documentElement.dataset.theme === 'dark' ? 'dark' as const : startTheme)
   useEffect(() => {
     document.documentElement.dataset.theme = theme
     try { localStorage.setItem('theme', theme) } catch {}

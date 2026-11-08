@@ -1,0 +1,30 @@
+/* Design tokens: "paper & margins". Every component reads these; dark mode only redefines them. */
+:root{
+  --serif:"Iowan Old Style","Charter","Palatino Linotype",Georgia,serif;
+  --sans:"Avenir Next",Avenir,"Segoe UI",system-ui,sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,monospace;
+  --paper:#f7f4ee;--canvas:#ebe6dc;--surface:#fffdf9;--surface-2:#f8f5ef;--surface-3:#f0ebe1;
+  --ink:#1d2028;--text:#30343d;--muted:#666a73;--faint:#8f8c84;
+  --line:#e5dfd3;--line-strong:#cfc7b7;
+  --accent:#2b4bb3;--accent-strong:#1e3a93;--accent-tint:#e9ecf7;--accent-line:#c6cfec;--on-accent:#fff;--focus:#6d8cf0;
+  --margin:#cf5546;--margin-soft:#cf554626;
+  --ok:#36744d;--ok-tint:#e8f1e9;--ok-line:#cbe0d1;
+  --warn:#86601c;--warn-tint:#fbf1dc;
+  --danger:#a03a2f;--danger-tint:#fbeae6;--danger-line:#ebc6be;
+  --shadow:#2a22141a;--scrim:#1d202899;
+  --rule:#d9d2c3;
+  color-scheme:light;
+}
+:root[data-theme=dark]{
+  --paper:#14161b;--canvas:#0f1115;--surface:#1b1e24;--surface-2:#181b20;--surface-3:#23272f;
+  --ink:#f2eee6;--text:#d8d4cb;--muted:#a3a097;--faint:#7c7a73;
+  --line:#2b2f37;--line-strong:#3b404b;
+  --accent:#8fa7f0;--accent-strong:#a9bcf6;--accent-tint:#222b44;--accent-line:#34426b;--on-accent:#10131a;--focus:#8fa7f0;
+  --margin:#e07463;--margin-soft:#e0746326;
+  --ok:#7cc896;--ok-tint:#16271d;--ok-line:#24412f;
+  --warn:#e5c37a;--warn-tint:#2c2414;
+  --danger:#f2a79c;--danger-tint:#371b18;--danger-line:#5a2b25;
+  --shadow:#00000066;--scrim:#000000aa;
+  --rule:#262a31;
+  color-scheme:dark;
+}
