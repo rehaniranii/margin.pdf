@@ -119,6 +119,7 @@ export function compileTextEdits(source: Uint8Array, edits: TextEdit[], analyze?
     for (const edit of edits) groups.set(edit.page, [...groups.get(edit.page) ?? [], edit])
     const expected = new Map<number, Pick<Glyph, 'unicode' | 'origin'>[]>()
     const searchable = new Map<number, string[]>()
+    const verifiable = new Map<number, (glyph: Pick<Glyph, 'unicode' | 'origin'>) => boolean>()
     for (const [index, pageEdits] of groups) {
       const analysis = analyze ? analyze(index) : analyzePage(doc, index)
       const prepared = pageEdits.map((edit, i) => prepareEdit(analysis, edit, `F${i}`))
@@ -126,7 +127,13 @@ export function compileTextEdits(source: Uint8Array, edits: TextEdit[], analyze?
         if (intersects(union(prepared[i].ink, prepared[i].region.removal ?? prepared[i].region.bounds), union(prepared[j].ink, prepared[j].region.removal ?? prepared[j].region.bounds))) throw new Error('These edits overlap. No changes were applied.')
       }
       const removed = new Set(prepared.flatMap(p => p.region.glyphIndices))
-      const remaining = analysis.glyphs.filter((_, i) => !removed.has(i))
+      // MuPDF's redaction removes glyphs by their character box, so a space in a neighbouring run whose
+      // box reaches into the edited text (e.g. "Pay by |Friday| to") goes with it. Spaces paint nothing,
+      // so verification ignores whitespace within one em of the replaced areas; inked glyphs stay exact.
+      const areas = prepared.map(p => { const [x0, y0, x1, y1] = p.region.removal ?? p.region.bounds, em = p.region.fontSize; return [x0 - em, y0 - em, x1 + em, y1 + em] })
+      const visible = (glyph: Pick<Glyph, 'unicode' | 'origin'>) => !(glyph.unicode === 32 || glyph.unicode === 160) || !areas.some(([x0, y0, x1, y1]) => glyph.origin[0] >= x0 && glyph.origin[0] <= x1 && glyph.origin[1] >= y0 && glyph.origin[1] <= y1)
+      verifiable.set(index, visible)
+      const remaining = analysis.glyphs.filter((glyph, i) => !removed.has(i) && visible(glyph))
       const page = doc.loadPage(index)
       try {
         for (const { region } of prepared) {
@@ -135,9 +142,9 @@ export function compileTextEdits(source: Uint8Array, edits: TextEdit[], analyze?
         }
         page.applyRedactions(false, mupdf.PDFPage.REDACT_IMAGE_NONE, mupdf.PDFPage.REDACT_LINE_ART_NONE, mupdf.PDFPage.REDACT_TEXT_REMOVE)
         // Verify the removal in isolation, even when replacement == original wording.
-        assertGlyphs(paintedGlyphs(page).glyphs, remaining)
+        assertGlyphs(paintedGlyphs(page).glyphs.filter(visible), remaining)
         insertReplacements(doc, page, analysis, prepared)
-        expected.set(index, [...remaining, ...prepared.flatMap(p => p.glyphs)])
+        expected.set(index, [...remaining, ...prepared.flatMap(p => p.glyphs).filter(visible)])
         searchable.set(index, prepared.flatMap(p => p.lines.map(line => line.trim()).filter(Boolean)))
       } finally { page.destroy() }
     }
@@ -148,7 +155,7 @@ export function compileTextEdits(source: Uint8Array, edits: TextEdit[], analyze?
       try {
         for (const [index, glyphs] of expected) {
           const page = reopened.loadPage(index)
-          try { assertGlyphs(paintedGlyphs(page).glyphs, glyphs) } finally { page.destroy() }
+          try { assertGlyphs(paintedGlyphs(page).glyphs.filter(verifiable.get(index)!), glyphs) } finally { page.destroy() }
           // Search uses structured extraction, separate from painted glyph checks.
           const textPage = reopened.loadPage(index)
           try {

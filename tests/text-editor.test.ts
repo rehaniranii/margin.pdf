@@ -212,3 +212,23 @@ test('accented Latin replacements are written in WinAnsi, extract back exactly, 
   const second = openPdf(compileTextEdits(fixture({ content: 'BT /F 20 Tf 1 0 0 1 80 360 Tm (Caf\\351 cr\\350me) Tj ET' }), [{ ...edit, text: 'Thé noir' }]))
   try { assert.ok(analyzePage(second, 0).view.regions.some(region => region.text === 'Thé noir')) } finally { second.destroy() }
 })
+
+test('a bold run followed by a normal run that starts with a space can be edited (Chrome/Word style mixed lines)', () => {
+  // The normal run's leading space starts exactly where the bold text ends, inside the removal area.
+  const doc = new mupdf.PDFDocument(), bold = new mupdf.Font('Helvetica-Bold'), regular = new mupdf.Font('Helvetica')
+  const width = [...'Bold heading line'].reduce((sum, c) => sum + bold.advanceGlyph(bold.encodeCharacter(c)) * 12, 0)
+  const page = doc.addPage([0, 0, 400, 200], 0, { Font: { B: doc.addSimpleFont(bold), R: doc.addSimpleFont(regular) } },
+    `BT /B 12 Tf 1 0 0 1 40 120 Tm (Bold heading line) Tj ET BT /R 12 Tf 1 0 0 1 ${40 + width} 120 Tm ( followed by normal text.) Tj ET`)
+  doc.insertPage(-1, page)
+  const buffer = doc.saveToBuffer('compress'), source = buffer.asUint8Array().slice()
+  const original = openPdf(source), region = analyzePage(original, 0).view.regions.find(r => r.text === 'Bold heading line')!
+  assert.ok(region && !region.unsupported, 'the bold run is its own editable region')
+  const output = openPdf(compileTextEdits(source, [{ ...edit, regionId: region.id, text: 'Bold title', size: 12, font: 'Helvetica-Bold' }]))
+  try {
+    const text = analyzePage(output, 0).view.regions.map(r => r.text).join(' | ')
+    assert.match(text, /Bold title/); assert.match(text, /followed by normal text\./)
+    // The neighbouring run is pixel-identical: compare the area right of the edited text.
+    const crop = (d: mupdf.PDFDocument) => { const pix = d.loadPage(0).toPixmap(mupdf.Matrix.identity, mupdf.ColorSpace.DeviceRGB, false, true); const p = pix.getPixels(), w = pix.getWidth(), out: number[] = []; for (let y = 60; y < 95; y++) for (let x = Math.ceil(40 + width) + 2; x < 390; x++) out.push(p[(y * w + x) * 3]); return out }
+    assert.deepEqual(crop(output), crop(original))
+  } finally { output.destroy(); original.destroy(); buffer.destroy() }
+})
