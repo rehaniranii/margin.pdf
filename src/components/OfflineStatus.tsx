@@ -1,8 +1,10 @@
 import { useState, useSyncExternalStore } from 'react'
 import { activeJobCount, subscribeToJobs } from '../offline/activity'
+import { InstallButton } from './InstallButton'
 import { applyUpdate, deliverySnapshot, retryOfflineDelivery, subscribeToDelivery } from '../offline/client'
 
-export function OfflineStatus(){
+// install: the editor's phone-width Install button (its header has no room for one there).
+export function OfflineStatus({install=false}:{install?:boolean}){
   const status=useSyncExternalStore(subscribeToDelivery,deliverySnapshot)
   const busy=useSyncExternalStore(subscribeToJobs,activeJobCount)>0
   const [updateError,setUpdateError]=useState('')
@@ -12,6 +14,7 @@ export function OfflineStatus(){
     {status.phase==='setup'&&<button disabled={busy} onClick={()=>{if(!activeJobCount())location.reload()}}>Reload to enable offline</button>}
     {status.phase==='error'&&<button disabled={busy} onClick={()=>void retryOfflineDelivery()}>Retry offline setup</button>}
     {status.updateWaiting&&<><span className="update-note">{updateError||'A new version is ready.'}</span><button disabled={busy} onClick={()=>void applyUpdate().then(error=>setUpdateError(error??''))}>Update now</button></>}
+    {install&&<span className="strip-install"><InstallButton className="strip-install-button"/></span>}
     <details><summary>Privacy &amp; offline</summary><div className="delivery-details">
       <strong>Your documents stay on this device</strong>
       <p>Files, names, passwords, thumbnails and extracted text are never uploaded. No account, advertising, analytics or remote error reporting.</p>

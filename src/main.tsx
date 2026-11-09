@@ -7,6 +7,7 @@ import { findTool } from './tools'
 import './tokens.css'
 import './styles.css'
 import { startOfflineDelivery } from './offline/client'
+import './install' // listen for the browser's install prompt before anything renders
 import { OfflineStatus } from './components/OfflineStatus'
 import { handOff } from './handoff'
 
@@ -25,7 +26,7 @@ function Root() {
     else if (hash.startsWith('#/')) scrollTo(0, 0)
   }, [hash])
   const tool = findTool(route)
-  return <><OfflineStatus/>{route === 'edit' ? <App/> : tool ? <ToolPage tool={tool}/> : <Home/>}</>
+  return <><OfflineStatus install={route === 'edit'}/>{route === 'edit' ? <App/> : tool ? <ToolPage tool={tool}/> : <Home/>}</>
 }
 
 startOfflineDelivery()

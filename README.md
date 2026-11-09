@@ -367,7 +367,12 @@ production, cache repair, version update, storage and request checks performed.
 
 The site is an installable web app (`public/manifest.webmanifest`, icons in `public/icons/`,
 `manifest-src 'self'` in the CSP). Chrome/Edge show an install button in the address bar,
-Android offers "Install app", and iOS/iPadOS use Share → Add to Home Screen. It opens in
+Android offers "Install app", and iOS/iPadOS use Share → Add to Home Screen. The site
+header's **Install app** button opens the browser's own install dialog in one click
+(Chrome, Edge, Android); on iPhone/iPad, where sites cannot trigger installation, it shows
+those steps. It is hidden where installing is impossible (e.g. Firefox desktop) or done.
+The editor has the same button in its header, or in the top status strip on phones, where
+the editor header has no room for it. It opens in
 its own window and works offline like the site.
 
 - **Open with:** on desktop Chrome/Edge, the installed app registers for PDF files. A file
