@@ -1,20 +1,19 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { PointerEvent } from 'react'
-import type { ReplacementFont } from '../model/document'
 import type { FormField, Signature } from '../model/utilities'
-import { fontCss } from '../model/fonts'
+import { FONT_FAMILIES, HANDWRITING_FONTS, STYLE_LABELS, fontCss, isHandwriting } from '../model/fonts'
+import type { SignatureFont } from '../model/fonts'
 import { fitSize, fits } from '../model/signature-fit'
 import { DropZone } from './DropZone'
-import { FontSelect } from './FontSelect'
 
 export type SignMode = 'none' | 'type' | 'draw' | 'image'
 // `size` undefined = fit the text to the box.
-export type FillState = { values: Record<string, string>; mode: SignMode; text: string; font: ReplacementFont; size?: number; file?: File; page: number; box: Signature['box']; flatten: boolean }
-export const initialFill: FillState = { values: {}, mode: 'none', text: '', font: 'Times-Italic', page: 1, box: [0.55, 0.82, 0.35, 0.08], flatten: false }
+export type FillState = { values: Record<string, string>; mode: SignMode; text: string; font: SignatureFont; size?: number; file?: File; page: number; box: Signature['box']; flatten: boolean }
+export const initialFill: FillState = { values: {}, mode: 'none', text: '', font: 'Dancing Script', page: 1, box: [0.55, 0.82, 0.35, 0.08], flatten: false }
 export type PageImage = { url: string; width: number; height: number; dpi: number }
 
 // Text width in em for a standard font, measured with the matching browser font (close to the PDF metrics).
-function measure(text: string, font: ReplacementFont) {
+function measure(text: string, font: SignatureFont) {
   const css = fontCss(font), context = document.createElement('canvas').getContext('2d')!
   context.font = `${css.fontStyle} ${css.fontWeight} 100px ${css.fontFamily}`
   return context.measureText(text).width / 100
@@ -46,7 +45,10 @@ export function FillSign({ fields, pageCount, state, onChange, pageImage, pad }:
     {state.mode === 'type' && <>
       <label>Your name<input value={state.text} maxLength={80} onChange={event => set({ text: event.target.value })} placeholder="Jane Doe"/></label>
       <div className="utility-two">
-        <label>Font<FontSelect id="signature-font" label="Signature font" value={state.font} onChange={font => set({ font })}/></label>
+        <label>Font<select id="signature-font" aria-label="Signature font" value={state.font} onChange={event => set({ font: event.target.value as SignatureFont })}>
+          <optgroup label="Handwriting">{HANDWRITING_FONTS.map(font => <option key={font} value={font} style={fontCss(font)}>{font}</option>)}</optgroup>
+          {FONT_FAMILIES.map(family => <optgroup key={family.label} label={family.label}>{(Object.keys(STYLE_LABELS) as (keyof typeof STYLE_LABELS)[]).map(style => <option key={style} value={family[style]}>{style === 'regular' ? family.label : `${family.label} ${STYLE_LABELS[style].toLowerCase()}`}</option>)}</optgroup>)}
+        </select></label>
         <label>Size (pt)<input type="number" min="4" max="144" placeholder="Fit to box" value={state.size ?? ''} onChange={event => set({ size: Number.isFinite(event.target.valueAsNumber) ? event.target.valueAsNumber : undefined })}/></label>
       </div>
     </>}
@@ -64,7 +66,7 @@ export function FillSign({ fields, pageCount, state, onChange, pageImage, pad }:
   </>
 }
 
-function Placement({ image, box, onBox, typed }: { image: PageImage; box: Signature['box']; onBox: (box: Signature['box']) => void; typed?: { text: string; font: ReplacementFont; size?: number } }) {
+function Placement({ image, box, onBox, typed }: { image: PageImage; box: Signature['box']; onBox: (box: Signature['box']) => void; typed?: { text: string; font: SignatureFont; size?: number } }) {
   const [x, y, w, h] = box
   // While dragging, the box lives in local state so only this component re-renders; the form gets it on release.
   type Gesture = { kind: 'move'; grab: [number, number] } | { kind: 'resize'; anchor: [number, number]; sx: number; sy: number; offset: [number, number] }
@@ -81,6 +83,9 @@ function Placement({ image, box, onBox, typed }: { image: PageImage; box: Signat
   const [lx, ly, lw, lh] = live ?? box
   // Typed preview in page points, drawn with container-relative units so it scales with the preview.
   const pageW = image.width * 72 / image.dpi, pageH = image.height * 72 / image.dpi
+  // Handwriting fonts load on demand; measure again once the browser has them.
+  const [, fontReady] = useState(0)
+  useEffect(() => { if (typed && isHandwriting(typed.font)) void document.fonts.load(`100px "${typed.font}"`).then(() => fontReady(n => n + 1)) }, [typed?.font])
   const advance = typed?.text ? measure(typed.text, typed.font) : 0
   const size = typed?.text ? typed.size ?? fitSize(advance, lw * pageW, lh * pageH) : 0
   const overflow = !!typed?.text && !fits(advance, size, lw * pageW, lh * pageH)

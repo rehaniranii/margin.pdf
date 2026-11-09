@@ -127,7 +127,7 @@ export default function App() {
     const requested=requestedUtility.current;requestedUtility.current=null
     const handed=takeHandOff()
     if(handed)void openFile(handed.file,handed.hasLocalCopy)
-    else if(requested&&['organize','merge','extract','from-images','to-images','watermark','numbers','compress','redact','protect','unlock','sanitize','crop','fill'].includes(requested)){setInitialUtility(requested as UtilityTab);setUtilitiesOpen(true);setBusy('')}else setBusy('')
+    else if(requested&&['organize','merge','extract','from-images','to-images','watermark','numbers','compress','redact','protect','unlock','sanitize','crop','fill','ocr'].includes(requested)){setInitialUtility(requested as UtilityTab);setUtilitiesOpen(true);setBusy('')}else setBusy('')
     return () => { generation.current++; client.current?.dispose() }
   }, [])
 

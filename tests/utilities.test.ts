@@ -1,4 +1,5 @@
 import { test } from 'node:test'
+import { readFileSync } from 'node:fs'
 import assert from 'node:assert/strict'
 import * as mupdf from 'mupdf'
 import { PdfUtilities } from '../src/engine/pdf-utilities'
@@ -214,8 +215,50 @@ test('typed signatures use the chosen standard font and size, and reject text th
   const signed=tools.build({kind:'fill',source:'sample',values:{},flatten:false,signature:{page:0,box:[.1,.7,.6,.2],text:'Zoë Rao',font:'Courier-Bold',size:30}})
   using(signed.bytes,doc=>{const page=doc.loadPage(0),text=page.toStructuredText('');try{let found:{font:string,size:number}|undefined;text.walk({onChar(c,_o,font,size){if(c==='Z'&&!found)found={font:font.getName(),size}}});assert.match(found!.font,/Courier.*Bold|Bold.*Courier|NimbusMonoPS-Bold/i);assert.ok(Math.abs(found!.size-30)<.01)}finally{text.destroy();page.destroy()}})
   assert.throws(()=>tools.build({kind:'fill',source:'sample',values:{},flatten:false,signature:{page:0,box:[.1,.7,.2,.05],text:'A much longer signature',size:40}}),/does not fit/)
-  assert.throws(()=>tools.build({kind:'fill',source:'sample',values:{},flatten:false,signature:{page:0,box:[.1,.7,.6,.2],text:'Ok',font:'Comic-Sans' as never}}),/standard font/)
+  assert.throws(()=>tools.build({kind:'fill',source:'sample',values:{},flatten:false,signature:{page:0,box:[.1,.7,.6,.2],text:'Ok',font:'Comic-Sans' as never}}),/available font/)
   const tall=tools.build({kind:'fill',source:'sample',values:{},flatten:false,signature:{page:0,box:[.1,.3,.15,.5],text:'Ok'}})
   assert.match(using(tall.bytes,doc=>inspect(doc).text),/Ok/)
+ }finally{tools.dispose()}
+})
+
+test('handwriting signature fonts are embedded as a small subset and keep the text searchable',()=>{
+ const tools=new PdfUtilities(),source=createSample();tools.add('sample','pdf',source.buffer)
+ try{
+  assert.throws(()=>tools.build({kind:'fill',source:'sample',values:{},flatten:false,signature:{page:0,box:[.1,.7,.6,.15],text:'Zoë',font:'Dancing Script'}}),/not loaded/)
+  for(const [name,file] of [['Dancing Script','DancingScript.ttf'],['Great Vibes','GreatVibes-Regular.ttf']] as const){
+   const bytes=readFileSync(`src/assets/fonts/${file}`);tools.addFont(name,bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength))
+   const signed=tools.build({kind:'fill',source:'sample',values:{},flatten:false,signature:{page:0,box:[.1,.7,.6,.15],text:'Zoë Müller – “OK”',font:name}})
+   assert.match(using(signed.bytes,doc=>inspect(doc).text),/Zoë Müller – “OK”/)
+   assert.ok(signed.bytes.byteLength-source.byteLength<25_000,`${name} adds ${signed.bytes.byteLength-source.byteLength} bytes; the font must be subset`)
+   using(signed.bytes,doc=>{let embedded=false;for(let i=1;i<doc.countObjects();i++){const o=doc.newIndirect(i).resolve();if(o.isDictionary()&&!o.get('FontFile2').isNull())embedded=true}assert.ok(embedded,`${name} is embedded`)})
+  }
+  assert.throws(()=>tools.addFont('Comic Sans',new ArrayBuffer(4)),/Unknown/)
+ }finally{tools.dispose()}
+})
+
+test('watermark angles (diagonal corner to corner, custom, vertical), corner positions, tiling and fonts',()=>{
+ const tools=new PdfUtilities();tools.add('sample','pdf',createSample().buffer)
+ const base:Stamp={kind:'watermark',text:'CONFIDENTIAL',size:40,color:'#cc0000',opacity:.3,position:'center',start:1,pages:[0]}
+ // Direction (degrees, counter-clockwise on screen), centre and font of the stamp's line, plus how often it appears.
+ const measure=(stamp:Stamp)=>using(tools.build({kind:'pages',pages:[entry('sample')],acceptFlattening:true,stamp}).bytes,doc=>{
+  const page=doc.loadPage(0),text=page.toStructuredText(''),b=page.getBounds()
+  try{let found:{deg:number,cx:number,cy:number,font:string}|undefined;let line:{dir:number[],bbox:number[]}|undefined
+   text.walk({beginLine(bbox,_w,dir){line={dir,bbox}},onChar(c,_o,font){if(c==='C'&&!found&&line)found={deg:Math.atan2(-line.dir[1],line.dir[0])*180/Math.PI,cx:(line.bbox[0]+line.bbox[2])/2-b[0],cy:(line.bbox[1]+line.bbox[3])/2-b[1],font:font.getName()}}})
+   return {...found!,count:page.search('CONFIDENTIAL',{}).length,w:b[2]-b[0],h:b[3]-b[1]}}finally{text.destroy();page.destroy()}})
+ try{
+  const diagonal=measure({...base,angle:'diagonal'})
+  assert.ok(Math.abs(diagonal.deg-Math.atan2(diagonal.h,diagonal.w)*180/Math.PI)<0.5,`diagonal runs corner to corner: ${diagonal.deg}`)
+  assert.ok(Math.abs(diagonal.cx-diagonal.w/2)<2&&Math.abs(diagonal.cy-diagonal.h/2)<2,'centred')
+  assert.ok(Math.abs(measure({...base,angle:'diagonal-down'}).deg+Math.atan2(diagonal.h,diagonal.w)*180/Math.PI)<0.5)
+  assert.ok(Math.abs(measure({...base,angle:30}).deg-30)<0.5)
+  assert.ok(Math.abs(measure({...base,angle:90,size:30}).deg-90)<0.5)
+  const corner=measure({...base,size:20,position:'top-right',font:'Times-Bold'})
+  assert.ok(corner.cx>corner.w*0.6&&corner.cy<corner.h*0.15,`top right: ${corner.cx},${corner.cy}`);assert.match(corner.font,/Times.*Bold|Bold.*Times|NimbusRoman-Bold/i)
+  const bottomLeft=measure({...base,size:20,position:'bottom-left',angle:'diagonal'})
+  assert.ok(bottomLeft.cx<bottomLeft.w*0.4&&bottomLeft.cy>bottomLeft.h*0.75,`bottom left: ${bottomLeft.cx},${bottomLeft.cy}`)
+  assert.ok(measure({...base,size:24,tile:true,angle:'diagonal'}).count>=6,'tiled across the page')
+  assert.throws(()=>measure({...base,size:144}),/does not fit/)
+  assert.ok(measure({...base,size:144,tile:true}).count>=1,'tiling clips instead of rejecting')
+  assert.throws(()=>measure({...base,angle:120}),/angle/)
  }finally{tools.dispose()}
 })

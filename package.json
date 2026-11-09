@@ -15,9 +15,11 @@
     "release:browser-output": "node --import tsx scripts/release/verify-browser.ts"
   },
   "dependencies": {
+    "@tesseract.js-data/eng": "1.0.0",
     "mupdf": "1.28.1",
     "react": "19.3.1",
-    "react-dom": "19.3.1"
+    "react-dom": "19.3.1",
+    "tesseract.js-core": "6.1.2"
   },
   "devDependencies": {
     "@types/node": "26.6.6",

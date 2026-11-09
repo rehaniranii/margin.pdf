@@ -9,11 +9,25 @@ import { boundedScale } from '../geometry/page'
 import { compressLevels, compressSaveOptions, findOnPage, recompressImages, redactText, redactionPattern } from './rewrite'
 
 import { REPLACEMENT_FONTS } from './text-edit'
+import { isHandwriting } from '../model/fonts'
 import { fitSize, fits } from '../model/signature-fit'
-import { pdfLiteral as literal, supportedText, unsupportedMessage } from '../model/text-encoding'
+import { pdfLiteral as literal, supportedText, unsupportedMessage, winAnsiCode } from '../model/text-encoding'
 const rgb=(color:string)=>[1,3,5].map(i=>parseInt(color.slice(i,i+2),16)/255).join(' ')
 function save(doc:mupdf.PDFDocument,options='garbage=4,compress') { const buffer=doc.saveToBuffer(options);try{return buffer.asUint8Array().slice()}finally{buffer.destroy()} }
 
+// Embeds only the glyphs `text` uses: subset in a scratch document, then copy that one font
+// across. Subsetting the real document would also cut down the source PDF's own fonts.
+function subsetFont(doc:mupdf.PDFDocument,font:mupdf.Font,text:string){
+  const scratch=new mupdf.PDFDocument()
+  try{
+    const ref=scratch.addSimpleFont(font),page=scratch.addPage([0,0,10,10],0,{Font:{F:ref}},`BT /F 1 Tf ${literal(text)} Tj ET`)
+    try{scratch.insertPage(-1,page);scratch.subsetFonts();return doc.graftObject(ref)}finally{page.destroy();ref.destroy()}
+  }finally{scratch.destroy()}
+}
+function pageText(doc:mupdf.PDFDocument,index:number){
+  const page=doc.loadPage(index)
+  try{const text=page.toStructuredText('');try{return text.asText().trim()}finally{text.destroy()}}finally{page.destroy()}
+}
 function onState(widget:mupdf.PDFWidget){
   const normal=widget.getObject().get('AP','N');let on=''
   try{if(normal.isDictionary())normal.forEach((value,key)=>{try{if(key!=='Off'&&!on)on=String(key)}finally{value.destroy()}})}finally{normal.destroy()}
@@ -69,10 +83,14 @@ function hiddenData(doc:mupdf.PDFDocument){
   return [...left]
 }
 
+// PDF numbers have no exponent syntax: cos(90°) = 6.1e-17 would break the page's content stream.
+const pdfNumber=(n:number)=>Number(n.toFixed(4)).toString()
+
 export const formatSize=(bytes:number)=>bytes<1024*1024?`${Math.max(1,Math.round(bytes/1024))} KB`:`${(bytes/1024/1024).toFixed(1)} MB`
 
 export class PdfUtilities {
   private sources=new Map<string,{bytes:Uint8Array<ArrayBuffer>;info:UtilitySource}>()
+  private fonts=new Map<string,Uint8Array>()
   constructor(private progress?:(label:string)=>void) {}
   add(id:string,kind:'pdf'|'image',buffer:ArrayBuffer):UtilitySource {
     if (!id||this.sources.has(id)) throw new Error('This source is already registered.')
@@ -95,11 +113,19 @@ export class PdfUtilities {
     this.sources.set(id,{bytes,info});return info
   }
   release(id:string){this.sources.delete(id)}
+  /** Registers a handwriting font's TrueType bytes for typed signatures. */
+  addFont(name:string,buffer:ArrayBuffer){
+    if(!isHandwriting(name)) throw new Error('Unknown signature font.')
+    const bytes=new Uint8Array(buffer).slice(),font=new mupdf.Font(name.replaceAll(' ',''),bytes)
+    try{if(font.encodeCharacter('A')<=0) throw new Error('The signature font could not be read.')}finally{font.destroy()}
+    this.fonts.set(name,bytes)
+  }
   private source(id:string,kind:'pdf'|'image',allowLocked=false) {const value=this.sources.get(id);if(!value||value.info.kind!==kind) throw new Error('A source is missing. Add the file again.');if(value.info.locked&&!allowLocked) throw new Error('This PDF is password-protected. Remove the password with the Unlock tool first.');return value}
   build(spec:UtilitySpec):UtilityArtifact {
     if(spec.kind==='compress'||spec.kind==='redact'||spec.kind==='sanitize') return this.rewrite(spec)
     if(spec.kind==='protect'||spec.kind==='unlock') return this.password(spec)
     if(spec.kind==='fill') return this.fill(spec)
+    if(spec.kind==='ocr') return this.ocr(spec)
     const doc=new mupdf.PDFDocument()
     try {
       if(spec.kind==='pages') this.assemble(doc,spec.pages,spec.acceptFlattening)
@@ -129,7 +155,7 @@ export class PdfUtilities {
         if(!terms.length&&!spec.patterns.length) throw new Error('Enter at least one word or phrase, or pick emails or phone numbers.')
         pattern=redactionPattern(terms,spec.patterns,spec.matchCase)
         const result=redactText(doc,pattern,this.progress)
-        if(!result.matches) throw new Error('Nothing matched, so nothing was redacted. Check the spelling, or turn off “Match case”. Scanned pages contain no searchable text.')
+        if(!result.matches) throw new Error('Nothing matched, so nothing was redacted. Check the spelling, or turn off “Match case”. Scanned pages need Make searchable (OCR) first.')
         previewPage=result.pages[0]
         summary=`${result.matches} ${result.matches===1?'match':'matches'} removed on ${result.pages.length} ${result.pages.length===1?'page':'pages'}. `
       }
@@ -149,6 +175,48 @@ export class PdfUtilities {
         return {bytes:bytes.buffer,preview:render(reopened,previewPage,0.65,1),pageCount:reopened.countPages(),summary:summary.trim()}
       } finally{reopened.destroy()}
     } finally{doc.destroy()}
+  }
+  /** Pages without any extractable text: the ones OCR should read. */
+  textless(id:string):number[] {
+    const doc=openPdf(this.source(id,'pdf').bytes),result:number[]=[]
+    try{for(let index=0;index<doc.countPages();index++)if(!pageText(doc,index))result.push(index)}finally{doc.destroy()}
+    return result
+  }
+  private ocr(spec:Extract<UtilitySpec,{kind:'ocr'}>):UtilityArtifact {
+    const source=this.source(spec.source,'pdf')
+    if(!Array.isArray(spec.pages)||!spec.pages.length) throw new Error('No scanned pages to make searchable.')
+    const doc=openPdf(source.bytes)
+    try{
+      if(new Set(spec.pages.map(p=>p.page)).size!==spec.pages.length||spec.pages.some(p=>!Number.isInteger(p.page)||p.page<0||p.page>=doc.countPages()||!Array.isArray(p.words)||p.words.length>20000||p.words.some(w=>typeof w.text!=='string'||w.text.length>200||w.box?.length!==4||!w.box.every(Number.isFinite)||w.box[2]<=0||w.box[3]<=0))) throw new Error('The recognised text is malformed.')
+      const font=new mupdf.Font('Helvetica'),fontRef=doc.addSimpleFont(font)
+      let words=0
+      try{
+        for(const {page:index,words:found} of spec.pages){
+          if(pageText(doc,index)) throw new Error(`Page ${index+1} already has text, so it was not read again.`)
+          const usable=found.map(w=>({...w,text:[...w.text.trim()].map(c=>winAnsiCode(c)===undefined?'?':c).join('')})).filter(w=>w.text)
+          if(!usable.length) continue
+          this.progress?.(`Adding searchable text to page ${index+1}…`)
+          const page=doc.loadPage(index)
+          try{
+            const [bx,by]=page.getBounds()
+            // Invisible text (render mode 3) sized and stretched to each word's box: selectable and
+            // searchable, and redaction finds it over the scanned pixels it covers. MuPDF's Helvetica
+            // text box spans 1.075 em above the baseline and 0.299 em below (measured), so the box matches the word.
+            const ops=usable.map(({text,box:[x,y,w,h]})=>{const size=h/1.374,advance=[...text].reduce((sum,c)=>sum+font.advanceGlyph(font.encodeCharacter(c)),0)*size;return `BT /F ${size} Tf ${(100*w/Math.max(advance,0.01)).toFixed(2)} Tz 1 0 0 -1 ${bx+x} ${by+y+size*1.075} Tm ${literal(text)} Tj ET`})
+            appendPageForm(doc,page,`q 3 Tr ${ops.join(' ')} Q`,{Font:{F:fontRef}},'MarginOcr')
+            words+=usable.length
+          }finally{page.destroy()}
+        }
+      }finally{fontRef.destroy();font.destroy()}
+      if(!words) throw new Error('No text was recognised on the scanned pages. Very faint, handwritten or non-English text may not be readable.')
+      this.progress?.('Saving and checking the result…')
+      const bytes=save(doc),reopened=openPdf(bytes)
+      try{
+        const read=spec.pages.filter(p=>p.words.length).map(p=>p.page)
+        for(const index of read) if(!pageText(reopened,index)) throw new Error(`The recognised text on page ${index+1} could not be verified. Nothing was saved.`)
+        return {bytes:bytes.buffer,preview:render(reopened,read[0],0.65,1),pageCount:reopened.countPages(),summary:`${words} ${words===1?'word':'words'} recognised on ${read.length} scanned ${read.length===1?'page':'pages'}. The pages look the same; their text can now be selected, searched and redacted.`}
+      }finally{reopened.destroy()}
+    }finally{doc.destroy()}
   }
   private fill(spec:Extract<UtilitySpec,{kind:'fill'}>):UtilityArtifact {
     const source=this.source(spec.source,'pdf')
@@ -208,9 +276,10 @@ export class PdfUtilities {
       if(signature.text!==undefined){
         const text=signature.text.trim()
         if(!text||text.length>80||!supportedText(text)) throw new Error(`Type a signature of up to 80 characters. ${unsupportedMessage}`)
-        const name=signature.font??'Times-Italic'
-        if(!REPLACEMENT_FONTS.includes(name)||(signature.size!==undefined&&(!Number.isFinite(signature.size)||signature.size<4||signature.size>144))) throw new Error('Choose a standard font and a size from 4 to 144 points.')
-        const font=new mupdf.Font(name),ref=doc.addSimpleFont(font)
+        const name=signature.font??'Times-Italic',handwriting=isHandwriting(name),bytes=handwriting?this.fonts.get(name):undefined
+        if(!(handwriting||REPLACEMENT_FONTS.includes(name))||(signature.size!==undefined&&(!Number.isFinite(signature.size)||signature.size<4||signature.size>144))) throw new Error('Choose an available font and a size from 4 to 144 points.')
+        if(handwriting&&!bytes) throw new Error('The handwriting font has not loaded yet. Try again.')
+        const font=bytes?new mupdf.Font(name.replaceAll(' ',''),bytes):new mupdf.Font(name),ref=bytes?subsetFont(doc,font,text):doc.addSimpleFont(font)
         try{
           const advance=[...text].reduce((sum,c)=>sum+font.advanceGlyph(font.encodeCharacter(c)),0),size=signature.size??fitSize(advance,w,h)
           if(!fits(advance,size,w,h)) throw new Error('The typed signature does not fit its box. Make the box bigger or the font smaller.')
@@ -325,19 +394,38 @@ export class PdfUtilities {
     }
   }
   private stamp(doc:mupdf.PDFDocument,stamp:Stamp) {
-    if(!['watermark','numbers'].includes(stamp.kind)||!['center','bottom'].includes(stamp.position)||!stamp.pages.length||new Set(stamp.pages).size!==stamp.pages.length||stamp.pages.some(p=>!Number.isInteger(p)||p<0||p>=doc.countPages())) throw new Error('Choose valid pages for the stamp.')
+    const positions=['center','top','bottom','top-left','top-right','bottom-left','bottom-right']
+    if(!['watermark','numbers'].includes(stamp.kind)||!positions.includes(stamp.position)||!stamp.pages.length||new Set(stamp.pages).size!==stamp.pages.length||stamp.pages.some(p=>!Number.isInteger(p)||p<0||p>=doc.countPages())) throw new Error('Choose valid pages and a position for the stamp.')
     if(!stamp.text||!supportedText(stamp.text)||!/^#[\da-f]{6}$/i.test(stamp.color)||!Number.isFinite(stamp.size)||stamp.size<4||stamp.size>144||!Number.isFinite(stamp.opacity)||stamp.opacity<0.05||stamp.opacity>1||!Number.isSafeInteger(stamp.start)||stamp.start<1||stamp.start+doc.countPages()>Number.MAX_SAFE_INTEGER) throw new Error('Use Latin text (accents are fine), a size from 4 to 144 pt, a valid color/opacity, and a positive starting number.')
-    const font=new mupdf.Font('Helvetica'),fontRef=doc.addSimpleFont(font)
+    const angle=stamp.angle??0
+    if(!(angle==='diagonal'||angle==='diagonal-down'||(typeof angle==='number'&&Number.isFinite(angle)&&angle>=-90&&angle<=90))||(stamp.font!==undefined&&!REPLACEMENT_FONTS.includes(stamp.font))) throw new Error('Choose an angle from -90° to 90° and a standard font.')
+    const font=new mupdf.Font(stamp.font??'Helvetica'),fontRef=doc.addSimpleFont(font),size=stamp.size
     try {
       for(const [sequence,index] of stamp.pages.entries()) {
         this.progress?.(`Adding ${stamp.kind==='numbers'?'page numbers':'watermark'} to page ${index+1}…`)
         const page=doc.loadPage(index)
         try {
           const value=stamp.kind==='numbers'?stamp.text.replaceAll('{n}',String(stamp.start+sequence)).replaceAll('{total}',String(stamp.pages.length)):stamp.text
-          const bounds=page.getBounds(),width=[...value].reduce((sum,c)=>sum+font.advanceGlyph(font.encodeCharacter(c))*stamp.size,0),w=bounds[2]-bounds[0],h=bounds[3]-bounds[1]
-          if(width>w-24||stamp.size*1.5>h-24) throw new Error(`The stamp does not fit page ${index+1}. Shorten the text or reduce its size.`)
-          const x=bounds[0]+(w-width)/2,y=stamp.position==='center'?bounds[1]+h/2+stamp.size*0.35:bounds[3]-Math.max(18,stamp.size*0.5)
-          appendPageForm(doc,page,`q /G gs BT /F ${stamp.size} Tf ${rgb(stamp.color)} rg 1 0 0 -1 ${x} ${y} Tm ${literal(value)} Tj ET Q`,{Font:{F:fontRef},ExtGState:{G:{Type:'ExtGState',ca:stamp.opacity,CA:stamp.opacity}}},'MarginStamp')
+          const bounds=page.getBounds(),width=[...value].reduce((sum,c)=>sum+font.advanceGlyph(font.encodeCharacter(c))*size,0),w=bounds[2]-bounds[0],h=bounds[3]-bounds[1]
+          // Diagonals run corner to corner, so they suit every page shape.
+          const degrees=angle==='diagonal'?Math.atan2(h,w)*180/Math.PI:angle==='diagonal-down'?-Math.atan2(h,w)*180/Math.PI:angle
+          const t=degrees*Math.PI/180,cos=Math.cos(t),sin=Math.sin(t),height=size*0.7 // cap height
+          // Half extents of the rotated text box, on screen (y down).
+          const hx=Math.abs(cos)*width/2+Math.abs(sin)*height/2,hy=Math.abs(sin)*width/2+Math.abs(cos)*height/2
+          // Text matrix for a y-down page: baseline along (cos, -sin), "up" along (-sin, -cos); centred on (cx, cy).
+          const show=(cx:number,cy:number)=>`${[cos,-sin,-sin,-cos,cx-cos*width/2+sin*height/2,cy+sin*width/2+cos*height/2].map(pdfNumber).join(' ')} Tm ${literal(value)} Tj`
+          const margin=Math.max(18,size*0.5),centres:[number,number][]=[]
+          if(stamp.tile){
+            // Staggered grid over the whole page; text running past the edge is clipped.
+            const stepX=hx*2+size*2,stepY=hy*2+size*1.5
+            for(let row=0,y=bounds[1]+stepY/2;y-hy<bounds[3];row++,y+=stepY)for(let x=bounds[0]+(row%2?stepX/2:0);x-hx<bounds[2];x+=stepX)centres.push([x,y])
+          } else {
+            if(hx*2>w-24||hy*2>h-24) throw new Error(`The stamp does not fit page ${index+1}. Shorten the text, reduce its size, or change the angle.`)
+            const p=stamp.position,cx=p.endsWith('left')?bounds[0]+margin+hx:p.endsWith('right')?bounds[2]-margin-hx:bounds[0]+w/2
+            const cy=p.startsWith('top')?bounds[1]+margin+hy:p.startsWith('bottom')?bounds[3]-margin-hy:bounds[1]+h/2
+            centres.push([cx,cy])
+          }
+          appendPageForm(doc,page,`q /G gs BT /F ${size} Tf ${rgb(stamp.color)} rg ${centres.map(([x,y])=>show(x,y)).join(' ')} ET Q`,{Font:{F:fontRef},ExtGState:{G:{Type:'ExtGState',ca:stamp.opacity,CA:stamp.opacity}}},'MarginStamp')
         } finally{page.destroy()}
       }
     } finally{fontRef.destroy();font.destroy()}

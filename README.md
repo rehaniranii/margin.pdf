@@ -175,7 +175,10 @@ Opening from an editor uses its last committed PDF, including text and added obj
   resolution is 36–300 dpi; actual resolution can be lower under the render budget and
   is reported. Downloads are individually user-initiated; no ZIP or automatic batch.
 - **Watermark / Page numbers:** choose pages, size, color, opacity and center/bottom
-  placement. Watermarks use Helvetica with accented Latin. Numbering is “Page n of total”
+  placement. Watermarks can be horizontal, diagonal (corner to corner on each page, either direction),
+  vertical or any angle from -90° to 90°, placed once (centre, top, bottom or a corner) or
+  repeated across the page (clipped at the edge), in any of the 12 standard fonts with
+  accented Latin. Page numbers take the same positions and fonts. Numbering is “Page n of total”
   in the selected order, with a configurable starting number; total counts selected
   pages. Oversized or unsupported text is rejected. Stamps append above page content
   and can overlap it, so inspect the result.
@@ -202,7 +205,14 @@ Opening from an editor uses its last committed PDF, including text and added obj
   Images to PDF lists are draggable too.
 - **Fill and sign:** fills text, checkbox, radio and dropdown fields and reads every value
   back from the saved file. Adds a typed (Times Italic), drawn or uploaded visual signature
-  placed by clicking the page. Optional flattening. Not certificate-based digital signing.
+  placed by clicking the page. Typed signatures default to a handwriting font (Dancing Script
+  or Great Vibes, OFL, embedded as a small subset) or any standard font. Optional flattening. Not certificate-based digital signing.
+- **Make searchable (OCR):** pages with no extractable text (scans, photos) are rendered at
+  300 dpi and read by Tesseract (WASM, English, in its own worker). Each word is written as an
+  invisible text layer sized to its box, so pages look identical but text can be selected,
+  searched and redacted (redaction blacks out the scanned pixels under a match). Pages that
+  already have text are skipped; each read page is re-checked for text after saving. The
+  engine (2.9 MB) and English data (2.9 MB) are self-hosted and cached for offline use.
 - **Protect / Unlock:** Protect saves an AES-256 encrypted copy (same user and owner
   password, 4–127 printable ASCII characters, no commas). Unlock needs the real password
   and saves an unencrypted copy without permission restrictions. Both results are reopened

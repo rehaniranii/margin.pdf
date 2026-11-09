@@ -14,6 +14,20 @@ Copyright Meta Platforms, Inc. and affiliates. MIT.
 Licenses: react-LICENSE.txt, react-dom-LICENSE.txt, scheduler-LICENSE.txt
 Source: https://github.com/facebook/react
 
+Tesseract.js core 6.1.2 (Tesseract OCR compiled to WebAssembly) — Apache-2.0.
+Applies to the text recognition engine used by Make searchable (OCR).
+License: tesseract.js-core-LICENSE.txt
+Source: https://github.com/naptha/tesseract.js-core
+
+English OCR language data (@tesseract.js-data/eng 1.0.0, eng 4.0.0_best_int) — Apache-2.0 model data.
+License: tesseract-eng-traineddata-LICENSE.txt
+Source: https://github.com/naptha/tessdata
+
+Dancing Script and Great Vibes fonts (signature handwriting) — SIL Open Font License 1.1.
+Copyright The Dancing Script Project Authors; copyright The Great Vibes Pro Project Authors.
+Bundled unmodified from https://github.com/google/fonts; subsets are embedded in signed PDFs.
+Licenses: DancingScript-OFL.txt, GreatVibes-OFL.txt
+
 Vite and bundled runtime helpers
 MIT; its license file also includes upstream third-party notices.
 License: vite-LICENSE.txt

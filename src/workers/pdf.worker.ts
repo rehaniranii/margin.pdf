@@ -13,6 +13,8 @@ function execute({ command }: Request): Result {
   if (command.type === 'tool-source') return utilities.add(command.id, command.kind, command.bytes)
   if (command.type === 'tool-release') { utilities.release(command.id); return { released: true } }
   if (command.type === 'tool-build') return utilities.build(command.spec)
+  if (command.type === 'tool-font') { utilities.addFont(command.name, command.bytes); return { released: true } }
+  if (command.type === 'tool-textless') return utilities.textless(command.sourceId)
   if (command.type === 'tool-thumb') return utilities.thumbnail(command.sourceId, command.page, command.width)
   if (command.type === 'tool-image') return utilities.exportImage(command.sourceId, command.page, command.format, command.dpi)
   if (command.type === 'sample' || command.type === 'open') {

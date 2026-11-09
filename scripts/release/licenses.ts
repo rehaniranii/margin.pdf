@@ -7,10 +7,13 @@ const lock=JSON.parse(await readFile('package-lock.json','utf8')) as {packages:R
 const entries=Object.entries(lock.packages).filter(([name])=>name).map(([location,entry])=>({location,...entry}))
 assert.ok(entries.every(entry=>entry.license),'A locked dependency has no declared license; review it explicitly.')
 const runtime=entries.filter(entry=>!entry.dev)
-const noticed=new Set(['mupdf','react','react-dom','scheduler'])
+const noticed=new Set(['mupdf','react','react-dom','scheduler','tesseract.js-core','@tesseract.js-data/eng'])
+// Reviewed packages that ship no license file: their notice is written by hand instead of copied.
+const reviewedNotice:Record<string,string>={'@tesseract.js-data/eng':'public/licenses/tesseract-eng-traineddata-LICENSE.txt'}
 for(const entry of runtime){
  const name=entry.location.replace('node_modules/','')
  assert.ok(noticed.has(name),`Review/add notices for new runtime dependency ${name}`)
+ if(reviewedNotice[name]){assert.match(await readFile(reviewedNotice[name],'utf8'),/Apache License/,`Missing reviewed notice for ${name}`);continue}
  const source=await readFile(`${entry.location}/LICENSE`)
  assert.deepEqual(await readFile(`public/licenses/${name}-LICENSE.txt`),source,`Preserved ${name} license differs from installed package`)
 }
