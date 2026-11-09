@@ -128,7 +128,7 @@ export class PdfUtilities {
     if(spec.kind==='ocr') return this.ocr(spec)
     const doc=new mupdf.PDFDocument()
     try {
-      if(spec.kind==='pages') this.assemble(doc,spec.pages,spec.acceptFlattening)
+      if(spec.kind==='pages') this.assemble(doc,spec.pages)
       else this.images(doc,spec.sources,spec.paper,spec.margin)
       if(spec.kind==='pages'&&spec.crop) this.crop(doc,spec.crop)
       if(spec.kind==='pages'&&spec.stamp) this.stamp(doc,spec.stamp)
@@ -320,8 +320,7 @@ export class PdfUtilities {
       } finally{reopened.destroy()}
     } finally{doc.destroy()}
   }
-  private assemble(output:mupdf.PDFDocument,pages:PlannedPage[],accepted:boolean) {
-    if(!accepted) throw new Error('Review and accept the flattening and signature notice before generating a PDF.')
+  private assemble(output:mupdf.PDFDocument,pages:PlannedPage[]) {
     if(!pages.length) throw new Error('Keep at least one page in the result.')
     for(const entry of pages) {
       const source=this.source(entry.sourceId,'pdf')

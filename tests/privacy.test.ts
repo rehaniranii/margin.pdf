@@ -15,7 +15,7 @@ test('embedded JavaScript/actions/links remain inert through open, render, text 
   const session=new EditorSession(bytes)
   try{const region=session.view(0,1,1).text.regions.find(region=>region.text==='Original editable line')!;assert.ok(!region.unsupported);session.apply({type:'replace-text',page:0,regionId:region.id,text:'Local only.',font:'Helvetica',size:16,color:'#000000'},1,1);const output=openPdf(session.export());try{assert.match(inspect(output).text,/Local only/)}finally{output.destroy()}}finally{session.dispose()}
   tools.add('source','pdf',bytes.buffer)
-  assert.equal(tools.build({kind:'pages',pages:[{sourceId:'source',page:0,rotation:90}],acceptFlattening:true}).pageCount,1)
+  assert.equal(tools.build({kind:'pages',pages:[{sourceId:'source',page:0,rotation:90}]}).pageCount,1)
   assert.deepEqual(requests,[])
  }finally{tools.dispose();globalThis.fetch=originalFetch}
 })

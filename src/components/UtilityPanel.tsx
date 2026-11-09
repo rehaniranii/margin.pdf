@@ -4,6 +4,8 @@ import type { RenderedPage } from '../model/document'
 import type { ReplacementFont } from '../model/document'
 import type { StampPosition } from '../model/utilities'
 import { FontSelect } from './FontSelect'
+import type { PdfFeatures } from '../model/utilities'
+import type { Stamp } from '../model/utilities'
 import type { CompressLevel, ImageExport, PlannedPage, RedactPattern, UtilityArtifact, UtilitySource, UtilitySpec } from '../model/utilities'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { useDocumentActivity } from '../offline/useDocumentActivity'
@@ -39,7 +41,7 @@ export function UtilityPanel({current,onClose,onOpen,initialTab,page,initialFile
  const [tab,setTab]=useState<UtilityTab>(initialTab??(current?'organize':'from-images')),[busy,setBusy]=useState('Starting page tools…'),[error,setError]=useState(''),[notice,setNotice]=useState('')
  useDocumentActivity(!!busy)
  const [sources,setSources]=useState<Source[]>([]),[mergeIds,setMergeIds]=useState<string[]>([]),[imageIds,setImageIds]=useState<string[]>([]),[plan,setPlan]=useState<PlannedPage[]>([])
- const [windowStart,setWindowStart]=useState(0),[range,setRange]=useState(current?`1-${current.count}`:'1'),[accepted,setAccepted]=useState(false)
+ const [windowStart,setWindowStart]=useState(0),[range,setRange]=useState(current?`1-${current.count}`:'1')
  const [split,setSplit]=useState(false),[downloads,setDownloads]=useState<number[]>([]),[artifact,setArtifact]=useState<UtilityArtifact>(),[outputName,setOutputName]=useState('result.pdf')
  const [format,setFormat]=useState<'png'|'jpeg'>('png'),[dpi,setDpi]=useState(144),[imageResult,setImageResult]=useState<ImageExport>(),[paper,setPaper]=useState<'fit'|'a4'>('fit')
  const [artifactDownloaded,setArtifactDownloaded]=useState(false)
@@ -53,7 +55,11 @@ export function UtilityPanel({current,onClose,onOpen,initialTab,page,initialFile
  const [text,setText]=useState('DRAFT'),[size,setSize]=useState(initialTab==='numbers'?12:36),[color,setColor]=useState('#667085'),[opacity,setOpacity]=useState(initialTab==='numbers'?100:25),[start,setStart]=useState(1),[position,setPosition]=useState<StampPosition>(initialTab==='numbers'?'bottom':'center')
  const [angle,setAngle]=useState<'0'|'diagonal'|'diagonal-down'|'90'|'custom'>('diagonal'),[customAngle,setCustomAngle]=useState(30),[tile,setTile]=useState(false),[stampFont,setStampFont]=useState<ReplacementFont>(initialTab==='numbers'?'Helvetica':'Helvetica-Bold')
  const previewUrl=usePageImage(artifact?.preview), active=sources.find(source=>source.id==='current'),title=tabs.find(value=>value.id===tab)!.title
- const signed=sources.some(source=>source.features?.signed),incomplete=sources.some(source=>source.features?.signatureCheckIncomplete)
+ const signed=sources.some(source=>source.features?.signed)
+ // What a page copy loses, listed only when the chosen files actually have it.
+ const involved=(tab==='merge'?mergeIds.map(id=>sources.find(source=>source.id===id)):[active]).flatMap(source=>source?.features?[source.features]:[])
+ const has=(test:(features:PdfFeatures)=>boolean)=>involved.some(test)
+ const losses=[has(f=>f.links>0)&&'links are removed',has(f=>f.bookmarks)&&'bookmarks are removed',has(f=>f.annotations>0)&&'comments become part of the page',has(f=>f.widgets>0)&&'form fields become flat and can no longer be filled in',has(f=>f.signed)&&'the digital signature is no longer valid'].filter((loss):loss is string=>!!loss)
  function invalidate(){setArtifact(undefined);setDownloads([]);setImageResult(undefined);setNotice('')}
  async function job(action:(client:PdfWorkerClient,token:number)=>Promise<void>,label:string){
   if(locked.current||!worker.current)return
@@ -90,8 +96,25 @@ export function UtilityPanel({current,onClose,onOpen,initialTab,page,initialFile
  },[tab,active,plan,windowStart])
  const latestThumbs=useRef(thumbs);latestThumbs.current=thumbs
  useEffect(()=>()=>{Object.values(latestThumbs.current).forEach(URL.revokeObjectURL)},[])
+ // Live preview for stamps: the first selected page, rebuilt quietly a moment after each change.
+ const [live,setLive]=useState<{image:RenderedPage;page:number}>(),[liveError,setLiveError]=useState(''),liveSeq=useRef(0)
+ const liveUrl=usePageImage(live?.image)
+ const stampSpec=(pages:number[]):Stamp=>({kind:tab==='numbers'?'numbers':'watermark',text:tab==='numbers'?'Page {n} of {total}':text,size,color,opacity:opacity/100,position,start,pages,font:stampFont,...tab==='watermark'?{angle:angle==='custom'?customAngle:angle==='0'?0:angle==='90'?90:angle,tile}:{}})
+ useEffect(()=>{
+  if((tab!=='watermark'&&tab!=='numbers')||!active||active.locked){setLive(undefined);return}
+  const sequence=++liveSeq.current
+  const timer=setTimeout(async()=>{
+   let pages:number[]
+   try{pages=parsePages(range,active.pageCount)}catch{setLiveError('Enter valid pages to see a preview.');return}
+   // One page only, numbered as it will be in the full copy.
+   const stamp={...stampSpec([0]),text:tab==='numbers'?`Page {n} of ${pages.length}`:text}
+   try{const result=await worker.current?.request<UtilityArtifact>({type:'tool-build',quiet:true,spec:{kind:'pages',pages:[{sourceId:'current',page:pages[0],rotation:0}],stamp}});if(result&&sequence===liveSeq.current){setLive({image:result.preview,page:pages[0]});setLiveError('')}}
+   catch(reason){if(sequence===liveSeq.current)setLiveError(reason instanceof Error?reason.message:'The preview could not be drawn.')}
+  },350)
+  return()=>clearTimeout(timer)
+ },[tab,active,range,text,size,color,opacity,position,start,angle,customAngle,tile,stampFont])
  function cancel(){
-  epoch.current++;worker.current?.dispose();ocr.current?.dispose();ocr.current=undefined;locked.current=false;setSources([]);setMergeIds([]);setImageIds([]);setPlan([]);setAccepted(false)
+  epoch.current++;worker.current?.dispose();ocr.current?.dispose();ocr.current=undefined;locked.current=false;setSources([]);setMergeIds([]);setImageIds([]);setPlan([])
   void initialize().then(()=>setNotice('Operation cancelled. Utility input files were released; add them again if needed. Your editor is unchanged.'))
  }
  async function choosePdf(file?:File){
@@ -116,7 +139,7 @@ export function UtilityPanel({current,onClose,onOpen,initialTab,page,initialFile
  async function submit(event:FormEvent){event.preventDefault();setError('');invalidate()
   try{
    if(tab==='from-images'){await generate({kind:'images',sources:imageIds,paper,margin:0},'images.pdf');return}
-   if(tab==='to-images'||(tab==='extract'&&split)){if(tab==='extract'&&!accepted)throw new Error('Review the output notice first.');setWindowStart(0);setDownloads(selectedPages());return}
+   if(tab==='to-images'||(tab==='extract'&&split)){setWindowStart(0);setDownloads(selectedPages());return}
    const base=(active?.name??'document').replace(/\.pdf$/i,'')
    if(tab==='compress'){await generate({kind:'compress',source:'current',level},`${base}-compressed.pdf`);return}
    if(tab==='fill'){
@@ -163,14 +186,14 @@ export function UtilityPanel({current,onClose,onOpen,initialTab,page,initialFile
    if(tab==='redact'){await generate({kind:'redact',source:'current',terms:terms.split('\n'),patterns:redactKinds,matchCase},`${base}-redacted.pdf`);return}
    let pages:PlannedPage[]=tab==='organize'?plan:tab==='merge'?mergeIds.flatMap(id=>allPages(sources.find(source=>source.id===id)!)):allPages(active!)
    if(tab==='extract')pages=selectedPages().map(page=>({sourceId:'current',page,rotation:0}))
-   const spec:UtilitySpec={kind:'pages',pages,acceptFlattening:accepted}
+   const spec:UtilitySpec={kind:'pages',pages}
    if(tab==='crop')spec.crop={...margins,pages:selectedPages()}
-   if(tab==='watermark'||tab==='numbers')spec.stamp={kind:tab==='numbers'?'numbers':'watermark',text:tab==='numbers'?'Page {n} of {total}':text,size,color,opacity:opacity/100,position,start,pages:selectedPages(),font:stampFont,...tab==='watermark'?{angle:angle==='custom'?customAngle:angle==='0'?0:angle==='90'?90:angle,tile}:{}}
+   if(tab==='watermark'||tab==='numbers')spec.stamp=stampSpec(selectedPages())
    await generate(spec,`${tab}.pdf`)
   }catch(reason){setError(reason instanceof Error?reason.message:'Check the selected pages.')}
  }
  async function downloadPage(page:number){
-  if(tab==='extract'){await generate({kind:'pages',pages:[{sourceId:'current',page,rotation:0}],acceptFlattening:accepted},`page-${page+1}.pdf`,true);return}
+  if(tab==='extract'){await generate({kind:'pages',pages:[{sourceId:'current',page,rotation:0}]},`page-${page+1}.pdf`,true);return}
   await job(async(client,token)=>{const result=await client.request<ImageExport>({type:'tool-image',sourceId:'current',page,format,dpi});if(token!==epoch.current)return;setImageResult(result);downloadFile(result.bytes,`page-${page+1}.${format==='jpeg'?'jpg':'png'}`,`image/${format}`)},`Exporting page ${page+1}…`)
  }
  function switchTab(next:UtilityTab){setWindowStart(0);setTab(next);invalidate();setError('');if(next==='numbers'){setSize(12);setOpacity(100);setPosition('bottom');setStampFont('Helvetica')}else if(next==='watermark'){setSize(36);setOpacity(25);setPosition('center');setStampFont('Helvetica-Bold')}}
@@ -202,10 +225,10 @@ export function UtilityPanel({current,onClose,onOpen,initialTab,page,initialFile
    {tab==='sanitize'&&<div className="utility-policy"><strong>What is removed</strong><p>Document metadata (author, title, software, dates), XMP, JavaScript and automatic actions, attachments, links, bookmarks, private application data and earlier saved versions. Comments and form fields are flattened, so what you see stays but is no longer editable.</p><p>Visible text is not changed: use Redact for words on the page. Files with layers or XFA forms are refused. {signed?'A digital signature was detected; ':''}A new copy removes any signature’s validity.</p></div>}
    {tab==='protect'&&<><label>Password<input type="password" autoComplete="new-password" value={password} onChange={event=>setPassword(event.target.value)}/></label><label>Confirm password<input type="password" autoComplete="new-password" value={confirm} onChange={event=>setConfirm(event.target.value)}/></label><p className="field-help">4 to 127 basic Latin characters, no commas.</p><div className="utility-policy"><strong>Keep the password safe</strong><p>The copy is encrypted with AES-256. There is no recovery: if the password is lost, so is the file. The password never leaves this tab.</p><p>{signed?'A digital signature was detected. ':''}Saving a new copy removes any digital signature’s validity.</p></div></>}
    {tab==='unlock'&&<><label>Current password<input type="password" autoComplete="current-password" value={password} onChange={event=>setPassword(event.target.value)}/></label><p className="field-help">{active&&!active.locked?'This PDF opens without a password; unlocking removes its editing and printing restrictions, if any.':'The password you use to open this PDF.'}</p><div className="utility-policy"><strong>Only for files you may open</strong><p>Unlocking needs the real password; nothing is guessed or cracked. The result is an unencrypted copy, so store it with the same care.</p></div></>}
-   {copies&&<div className="utility-policy"><strong>Before you generate</strong><p>Forms and annotations become static page content using their current appearances. Their interactivity and comment data are removed. Links, bookmarks, attachments, document metadata, tags and page labels are not copied. Missing appearances may not be visible. No whole-document sanitization is promised.</p><p>{signed?'A digital signature was detected.':'PDF transformations cannot preserve digital signatures.'} Generating this copy removes signature validity; a visible signature appearance may remain. This is detection, not certificate verification.{incomplete?' Some objects could not be inspected; other signatures may be present.':''}</p><p>PDFs with optional-content layers or XFA forms need a locally flattened copy first.</p><label className="utility-check"><input type="checkbox" checked={accepted} onChange={event=>setAccepted(event.target.checked)}/>I understand these changes to the generated copy.</label></div>}
-   <button className="primary" type="submit" disabled={!!busy||noCurrent||(copies&&!accepted)}>{tab==='to-images'||(tab==='extract'&&split)?'Prepare downloads':tab==='compress'?'Compress':tab==='redact'?'Find and redact':tab==='protect'?'Protect PDF':tab==='sanitize'?'Remove hidden data':tab==='fill'?'Fill and sign':tab==='ocr'?'Make searchable':tab==='unlock'?'Unlock PDF':'Generate preview'}</button>
+   {copies&&!!losses.length&&<p className="field-help copy-note">In the new copy: {losses.join('; ')}. Your original file is unchanged.</p>}
+   <button className="primary" type="submit" disabled={!!busy||noCurrent}>{tab==='to-images'||(tab==='extract'&&split)?'Prepare downloads':tab==='compress'?'Compress':tab==='redact'?'Find and redact':tab==='protect'?'Protect PDF':tab==='sanitize'?'Remove hidden data':tab==='fill'?'Fill and sign':tab==='ocr'?'Make searchable':tab==='unlock'?'Unlock PDF':tab==='watermark'?'Create watermarked PDF':tab==='numbers'?'Add page numbers':'Generate preview'}</button>
   </fieldset></form>
-  <section className="utility-result" aria-label="Generated result"><h3>Result</h3>{artifact?<>{artifact.summary&&<p className="utility-summary" role="status">{artifact.summary}</p>}<p>{artifact.pageCount} {artifact.pageCount===1?'page':'pages'} · {tab==='redact'?'First redacted page':'First page'} preview</p>{previewUrl&&<img className="utility-preview" src={previewUrl} alt={tab==='redact'?'First redacted page of generated PDF':'First page of generated PDF'}/>}<div className="utility-actions"><button disabled={!!busy} className="primary" onClick={()=>{downloadPdf(artifact.bytes.slice(0),outputName);setArtifactDownloaded(true)}}>Download PDF</button>{tab!=='protect'&&<button disabled={!!busy} onClick={()=>onOpen(artifact.bytes.slice(0),outputName,artifactDownloaded)}>Open result in editor</button>}</div><p className="field-help">Opening the result starts a new edit history. Added objects and form/annotation appearances become source page content. Download your working PDF first if you want to keep that version.</p></>:<p className="field-help">Your generated copy will appear here. Nothing changes in the editor until you open a result.</p>}
+  <section className="utility-result" aria-label="Generated result"><h3>Result</h3>{artifact?<>{artifact.summary&&<p className="utility-summary" role="status">{artifact.summary}</p>}<p>{artifact.pageCount} {artifact.pageCount===1?'page':'pages'} · {tab==='redact'?'First redacted page':'First page'} preview</p>{previewUrl&&<img className="utility-preview" src={previewUrl} alt={tab==='redact'?'First redacted page of generated PDF':'First page of generated PDF'}/>}<div className="utility-actions"><button disabled={!!busy} className="primary" onClick={()=>{downloadPdf(artifact.bytes.slice(0),outputName);setArtifactDownloaded(true)}}>Download PDF</button>{tab!=='protect'&&<button disabled={!!busy} onClick={()=>onOpen(artifact.bytes.slice(0),outputName,artifactDownloaded)}>Open result in editor</button>}</div><p className="field-help">Opening the result starts a new edit history. Added objects and form/annotation appearances become source page content. Download your working PDF first if you want to keep that version.</p></>:(tab==='watermark'||tab==='numbers')&&active?<div className="live-preview"><p>Live preview · page {(live?.page??0)+1}</p>{liveError?<p className="inline-error" role="status">{liveError}</p>:liveUrl?<img className="utility-preview" src={liveUrl} alt="Preview of the stamped page"/>:<p className="field-help">Drawing preview…</p>}<p className="field-help">Updates as you change the options. Create the PDF to stamp every selected page.</p></div>:<p className="field-help">Your generated copy will appear here. Nothing changes in the editor until you open a result.</p>}
    {!!downloads.length&&<><p>{downloads.length} separate downloads. Click each file to generate and save it; no automatic batch downloads.</p><div className="download-list">{downloads.slice(windowStart,windowStart+40).map(page=><button key={page} disabled={!!busy} onClick={()=>void downloadPage(page)}>Download page {page+1} {tab==='extract'?'PDF':format==='png'?'PNG':'JPG'}</button>)}</div>{downloads.length>40&&<div className="utility-actions"><button disabled={!!busy||!windowStart} onClick={()=>setWindowStart(Math.max(0,windowStart-40))}>Previous 40</button><button disabled={!!busy||windowStart+40>=downloads.length} onClick={()=>setWindowStart(windowStart+40)}>Next 40</button></div>}</>}
    {imageResult&&<p role="status">Saved {imageResult.width} × {imageResult.height} pixels, {Number(imageResult.actualDpi.toFixed(1))} dpi{imageResult.actualDpi<imageResult.requestedDpi-.1?' (reduced to stay within the render budget)':''}.</p>}
   </section></div>

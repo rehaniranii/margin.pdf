@@ -27,18 +27,17 @@ test('merge/reorder/extract keep source text and source bytes; output has no cat
  const tools=new PdfUtilities(),source=createSample(),original=source.slice(),other=fixture({annotation:'Link'})
  try {
   tools.add('sample','pdf',source.buffer);tools.add('other','pdf',other.buffer)
-  const result=tools.build({kind:'pages',pages:[entry('sample',1),entry('other'),entry('sample')],acceptFlattening:true})
+  const result=tools.build({kind:'pages',pages:[entry('sample',1),entry('other'),entry('sample')]})
   assert.equal(result.pageCount,3)
   using(result.bytes,doc=>{
    assert.match(inspect(doc,0).text,/Space for what comes next/);assert.match(inspect(doc,1).text,/Original editable line/);assert.match(inspect(doc,2).text,/Make room for a better idea/)
    assert.equal(pdfFeatures(doc).links,0);assert.equal(doc.loadOutline(),null)
   })
   assert.deepEqual(source,original)
-  const extracted=tools.build({kind:'pages',pages:[entry('sample',1)],acceptFlattening:true})
+  const extracted=tools.build({kind:'pages',pages:[entry('sample',1)]})
   assert.equal(extracted.pageCount,1);assert.match(using(extracted.bytes,doc=>inspect(doc).text),/Space for what comes next/)
-  assert.throws(()=>tools.build({kind:'pages',pages:[],acceptFlattening:true}),/at least one/)
-  assert.throws(()=>tools.build({kind:'pages',pages:[entry('sample',2)],acceptFlattening:true}),/invalid/)
-  assert.throws(()=>tools.build({kind:'pages',pages:[entry('sample')],acceptFlattening:false}),/accept/)
+  assert.throws(()=>tools.build({kind:'pages',pages:[]}),/at least one/)
+  assert.throws(()=>tools.build({kind:'pages',pages:[entry('sample',2)]}),/invalid/)
  }finally{tools.dispose()}
 })
 
@@ -46,12 +45,12 @@ for(const rotation of [0,90,180,270] as const) test(`grafting preserves crop, in
  const tools=new PdfUtilities(),source=fixture({rotation,crop:[40,70,360,450],userUnit:2})
  try{
   tools.add('source','pdf',source.buffer)
-  const result=tools.build({kind:'pages',pages:[entry('source')],acceptFlattening:true})
+  const result=tools.build({kind:'pages',pages:[entry('source')]})
   using(source,original=>using(result.bytes,output=>{
    assert.deepEqual(inspect(output).bounds,inspect(original).bounds)
    assert.deepEqual(new Uint8Array(render(output,0,.6,1).png),new Uint8Array(render(original,0,.6,1).png))
   }))
-  const turned=tools.build({kind:'pages',pages:[entry('source',0,90)],acceptFlattening:true})
+  const turned=tools.build({kind:'pages',pages:[entry('source',0,90)]})
   using(turned.bytes,doc=>{const bounds=inspect(doc).bounds;const before=using(source,doc=>inspect(doc).bounds);assert.equal(bounds[2],before[3]);assert.equal(bounds[3],before[2]);assert.match(inspect(doc).text,/Original editable line/)})
  }finally{tools.dispose()}
 })
@@ -60,13 +59,13 @@ test('page numbers/watermarks are searchable, correctly positioned and fit-valid
  const tools=new PdfUtilities();tools.add('sample','pdf',createSample().buffer)
  const stamp:Stamp={kind:'numbers',text:'Page {n} of {total}',start:7,size:12,color:'#123456',opacity:1,position:'bottom',pages:[0,1]}
  try{
-  const result=tools.build({kind:'pages',pages:[entry('sample'),entry('sample',1)],acceptFlattening:true,stamp})
+  const result=tools.build({kind:'pages',pages:[entry('sample'),entry('sample',1)],stamp})
   using(result.bytes,doc=>{assert.match(inspect(doc,0).text,/Page 7 of 2/);assert.match(inspect(doc,1).text,/Page 8 of 2/);assert.match(inspect(doc).text,new RegExp(ORIGINAL_TEXT.replace('.','\\.')))})
   tools.add('rotated','pdf',fixture({rotation:90,crop:[40,70,360,450],userUnit:2}).buffer)
-  const marked=tools.build({kind:'pages',pages:[entry('rotated')],acceptFlattening:true,stamp:{...stamp,kind:'watermark',text:'LOCAL COPY',position:'center',opacity:.2,pages:[0]}})
+  const marked=tools.build({kind:'pages',pages:[entry('rotated')],stamp:{...stamp,kind:'watermark',text:'LOCAL COPY',position:'center',opacity:.2,pages:[0]}})
   using(marked.bytes,doc=>{const page=doc.loadPage(0),text=page.toStructuredText('');try{assert.equal(page.search('LOCAL COPY',{}).length,1);let origin:number[]=[];text.walk({onChar(c,o){if(c==='L'&&!origin.length)origin=o}});assert.ok(origin[0]>0&&origin[0]<760);assert.match(text.asText(),/Nearby content stays/)}finally{text.destroy();page.destroy()}})
-  assert.throws(()=>tools.build({kind:'pages',pages:[entry('sample')],acceptFlattening:true,stamp:{...stamp,pages:[0],text:'\u4e2d'}}),/Latin text/)
-  assert.throws(()=>tools.build({kind:'pages',pages:[entry('sample')],acceptFlattening:true,stamp:{...stamp,pages:[0],text:'long '.repeat(100)}}),/does not fit/)
+  assert.throws(()=>tools.build({kind:'pages',pages:[entry('sample')],stamp:{...stamp,pages:[0],text:'\u4e2d'}}),/Latin text/)
+  assert.throws(()=>tools.build({kind:'pages',pages:[entry('sample')],stamp:{...stamp,pages:[0],text:'long '.repeat(100)}}),/does not fit/)
  }finally{tools.dispose()}
 })
 
@@ -94,7 +93,7 @@ test('signatures detected including detached dictionary and inherited signature 
   try{root.put('AcroForm',{Fields:[parent]});parent.put('Kids',[widget]);const annots=page.get('Annots');try{annots.push(widget)}finally{annots.destroy()}
    assert.equal(pdfFeatures(doc).signed,true);assert.equal(pdfFeatures(doc).widgets,1);assert.equal(pdfFeatures(doc).links,1)
    const source=saved(doc);const info=tools.add('signed','pdf',source.buffer);assert.equal(info.features?.signed,true)
-   const out=tools.build({kind:'pages',pages:[entry('signed')],acceptFlattening:true});using(out.bytes,result=>{const features=pdfFeatures(result);assert.equal(features.signed,false);assert.equal(features.links,0);assert.equal(features.widgets,0)})
+   const out=tools.build({kind:'pages',pages:[entry('signed')]});using(out.bytes,result=>{const features=pdfFeatures(result);assert.equal(features.signed,false);assert.equal(features.links,0);assert.equal(features.widgets,0)})
   }finally{sig.destroy();parent.destroy();widget.destroy();root.destroy();page.destroy()}
  }finally{tools.dispose();doc.destroy()}
 })
@@ -106,25 +105,25 @@ test('annotation and form appearances are baked into vector page content; intera
   const ap=doc.addStream('0 0 1 rg 0 0 40 20 re f',{Type:'XObject',Subtype:'Form',BBox:[0,0,40,20],Resources:{}}),widget=doc.addObject({Type:'Annot',Subtype:'Widget',FT:'Tx',T:'Name',V:'Example',Rect:[80,400,120,420],AP:{N:ap}}),root=doc.getTrailer().get('Root'),po=doc.findPage(0),arr=po.get('Annots')
   try{arr.push(widget);root.put('AcroForm',{Fields:[widget]})}finally{arr.destroy();po.destroy();root.destroy();widget.destroy();ap.destroy()}
   const source=saved(doc);tools.add('source','pdf',source.buffer)
-  const result=tools.build({kind:'pages',pages:[entry('source')],acceptFlattening:true})
+  const result=tools.build({kind:'pages',pages:[entry('source')]})
   using(source,original=>using(result.bytes,output=>{assert.deepEqual(new Uint8Array(render(output,0,1,1).png),new Uint8Array(render(original,0,1,1).png));const features=pdfFeatures(output);assert.equal(features.annotations,0);assert.equal(features.widgets,0);assert.match(inspect(output).text,/Original editable line/)}))
  }finally{tools.dispose();doc.destroy()}
 })
 
 test('optional-content documents are rejected rather than silently changing layer visibility',()=>{
  const doc=openPdf(fixture()),tools=new PdfUtilities()
- try{const root=doc.getTrailer().get('Root');root.put('OCProperties',{OCGs:[]});root.destroy();const bytes=saved(doc);tools.add('layered','pdf',bytes.buffer);assert.throws(()=>tools.build({kind:'pages',pages:[entry('layered')],acceptFlattening:true}),/layers/)}finally{tools.dispose();doc.destroy()}
+ try{const root=doc.getTrailer().get('Root');root.put('OCProperties',{OCGs:[]});root.destroy();const bytes=saved(doc);tools.add('layered','pdf',bytes.buffer);assert.throws(()=>tools.build({kind:'pages',pages:[entry('layered')]}),/layers/)}finally{tools.dispose();doc.destroy()}
 })
 
 test('document bookmarks are detected then omitted; XFA is explicitly unsupported',()=>{
  const doc=openPdf(fixture()),tools=new PdfUtilities()
- try{const trailer=doc.getTrailer(),root=trailer.get('Root'),outlines=doc.addObject({Type:'Outlines',Count:0});try{root.put('Outlines',outlines);assert.equal(pdfFeatures(doc).bookmarks,true);const bytes=saved(doc);tools.add('bookmarked','pdf',bytes.buffer);const result=tools.build({kind:'pages',pages:[entry('bookmarked')],acceptFlattening:true});assert.equal(using(result.bytes,d=>pdfFeatures(d).bookmarks),false);const xfaValue=doc.newString('unsupported dynamic form');try{root.put('AcroForm',{XFA:xfaValue})}finally{xfaValue.destroy()};const xfa=saved(doc);const info=tools.add('xfa','pdf',xfa.buffer);assert.equal(info.features?.xfa,true);assert.throws(()=>tools.build({kind:'pages',pages:[entry('xfa')],acceptFlattening:true}),/XFA/)}finally{outlines.destroy();root.destroy();trailer.destroy()}}finally{doc.destroy();tools.dispose()}
+ try{const trailer=doc.getTrailer(),root=trailer.get('Root'),outlines=doc.addObject({Type:'Outlines',Count:0});try{root.put('Outlines',outlines);assert.equal(pdfFeatures(doc).bookmarks,true);const bytes=saved(doc);tools.add('bookmarked','pdf',bytes.buffer);const result=tools.build({kind:'pages',pages:[entry('bookmarked')]});assert.equal(using(result.bytes,d=>pdfFeatures(d).bookmarks),false);const xfaValue=doc.newString('unsupported dynamic form');try{root.put('AcroForm',{XFA:xfaValue})}finally{xfaValue.destroy()};const xfa=saved(doc);const info=tools.add('xfa','pdf',xfa.buffer);assert.equal(info.features?.xfa,true);assert.throws(()=>tools.build({kind:'pages',pages:[entry('xfa')]}),/XFA/)}finally{outlines.destroy();root.destroy();trailer.destroy()}}finally{doc.destroy();tools.dispose()}
 })
 
 test('page copying retains a transparency group and searchable committed source edits',async()=>{
  const {EditorSession}=await import('../src/engine/editor-session')
  const source=fixture(),session=new EditorSession(source),tools=new PdfUtilities()
- try{const region=session.view(0,1,1).text.regions.find(r=>r.text==='Original editable line')!;session.apply({type:'replace-text',page:0,regionId:region.id,text:'Changed first.',font:'Helvetica',size:18,color:'#000000'},1,1);const current=session.export();using(current,doc=>{const page=doc.findPage(0);page.put('Group',{Type:'Group',S:'Transparency',CS:'DeviceRGB',I:true});page.destroy();const grouped=saved(doc);tools.add('edited','pdf',grouped.buffer);const result=tools.build({kind:'pages',pages:[entry('edited')],acceptFlattening:true});using(grouped,original=>using(result.bytes,output=>{assert.deepEqual(new Uint8Array(render(output,0,1,1).png),new Uint8Array(render(original,0,1,1).png));assert.match(inspect(output).text,/Changed first/);assert.ok(!inspect(output).text.includes('Original editable line'));const p=output.findPage(0),g=p.get('Group');try{assert.ok(g.isDictionary())}finally{g.destroy();p.destroy()}}))})}finally{tools.dispose();session.dispose()}
+ try{const region=session.view(0,1,1).text.regions.find(r=>r.text==='Original editable line')!;session.apply({type:'replace-text',page:0,regionId:region.id,text:'Changed first.',font:'Helvetica',size:18,color:'#000000'},1,1);const current=session.export();using(current,doc=>{const page=doc.findPage(0);page.put('Group',{Type:'Group',S:'Transparency',CS:'DeviceRGB',I:true});page.destroy();const grouped=saved(doc);tools.add('edited','pdf',grouped.buffer);const result=tools.build({kind:'pages',pages:[entry('edited')]});using(grouped,original=>using(result.bytes,output=>{assert.deepEqual(new Uint8Array(render(output,0,1,1).png),new Uint8Array(render(original,0,1,1).png));assert.match(inspect(output).text,/Changed first/);assert.ok(!inspect(output).text.includes('Original editable line'));const p=output.findPage(0),g=p.get('Group');try{assert.ok(g.isDictionary())}finally{g.destroy();p.destroy()}}))})}finally{tools.dispose();session.dispose()}
 })
 
 test('protect encrypts with a verified password; unlock needs it and removes encryption; other tools refuse locked files',()=>{
@@ -162,17 +161,17 @@ test('blank and duplicate pages; crop trims the on-screen side for every rotatio
  const tools=new PdfUtilities()
  try{
   tools.add('sample','pdf',createSample().buffer)
-  const result=tools.build({kind:'pages',pages:[entry('sample'),{...entry('sample'),blank:true},entry('sample')],acceptFlattening:true})
+  const result=tools.build({kind:'pages',pages:[entry('sample'),{...entry('sample'),blank:true},entry('sample')]})
   assert.equal(result.pageCount,3);using(result.bytes,doc=>{assert.equal(inspect(doc,1).text.trim(),'');assert.deepEqual(inspect(doc,1).bounds,inspect(doc,0).bounds);assert.equal(inspect(doc,2).text,inspect(doc,0).text)})
   for(const rotation of [0,90,180,270] as const){
    const id=`r${rotation}`;tools.add(id,'pdf',fixture({rotation,userUnit:2}).buffer)
    const firstChar=(bytes:ArrayBuffer)=>using(bytes,doc=>{const page=doc.loadPage(0),text=page.toStructuredText('');try{let o:number[]=[];text.walk({onChar(c,origin){if(c==='O'&&!o.length)o=origin}});const b=page.getBounds();return {x:o[0]-b[0],y:o[1]-b[1],w:b[2]-b[0],h:b[3]-b[1]}}finally{text.destroy();page.destroy()}})
-   const plain=firstChar(tools.build({kind:'pages',pages:[entry(id)],acceptFlattening:true}).bytes)
-   const top=firstChar(tools.build({kind:'pages',pages:[entry(id)],acceptFlattening:true,crop:{top:40,right:0,bottom:0,left:30,pages:[0]}}).bytes)
+   const plain=firstChar(tools.build({kind:'pages',pages:[entry(id)]}).bytes)
+   const top=firstChar(tools.build({kind:'pages',pages:[entry(id)],crop:{top:40,right:0,bottom:0,left:30,pages:[0]}}).bytes)
    assert.ok(Math.abs(plain.h-top.h-40)<.01&&Math.abs(plain.w-top.w-30)<.01,`size ${rotation}`)
    assert.ok(Math.abs(plain.y-top.y-40)<.01&&Math.abs(plain.x-top.x-30)<.01,`side ${rotation}`)
   }
-  assert.throws(()=>tools.build({kind:'pages',pages:[entry('sample')],acceptFlattening:true,crop:{top:5000,right:0,bottom:0,left:0,pages:[0]}}),/half an inch/)
+  assert.throws(()=>tools.build({kind:'pages',pages:[entry('sample')],crop:{top:5000,right:0,bottom:0,left:0,pages:[0]}}),/half an inch/)
  }finally{tools.dispose()}
 })
 
@@ -201,7 +200,7 @@ test('fill and sign lists fields, fills text/checkbox/choice/radio, verifies, pl
 test('watermarks and typed signatures accept accented Latin and stay searchable',()=>{
  const tools=new PdfUtilities();tools.add('sample','pdf',createSample().buffer)
  try{
-  const marked=tools.build({kind:'pages',pages:[entry('sample')],acceptFlattening:true,stamp:{kind:'watermark',text:'BROUILLON – Café',size:30,color:'#667085',opacity:.3,position:'center',start:1,pages:[0]}})
+  const marked=tools.build({kind:'pages',pages:[entry('sample')],stamp:{kind:'watermark',text:'BROUILLON – Café',size:30,color:'#667085',opacity:.3,position:'center',start:1,pages:[0]}})
   assert.match(using(marked.bytes,doc=>inspect(doc).text),/BROUILLON – Café/)
   const signed=tools.build({kind:'fill',source:'sample',values:{},flatten:false,signature:{page:0,box:[.1,.8,.5,.1],text:'Zoë Müller'}})
   assert.match(using(signed.bytes,doc=>inspect(doc).text),/Zoë Müller/)
@@ -240,7 +239,7 @@ test('watermark angles (diagonal corner to corner, custom, vertical), corner pos
  const tools=new PdfUtilities();tools.add('sample','pdf',createSample().buffer)
  const base:Stamp={kind:'watermark',text:'CONFIDENTIAL',size:40,color:'#cc0000',opacity:.3,position:'center',start:1,pages:[0]}
  // Direction (degrees, counter-clockwise on screen), centre and font of the stamp's line, plus how often it appears.
- const measure=(stamp:Stamp)=>using(tools.build({kind:'pages',pages:[entry('sample')],acceptFlattening:true,stamp}).bytes,doc=>{
+ const measure=(stamp:Stamp)=>using(tools.build({kind:'pages',pages:[entry('sample')],stamp}).bytes,doc=>{
   const page=doc.loadPage(0),text=page.toStructuredText(''),b=page.getBounds()
   try{let found:{deg:number,cx:number,cy:number,font:string}|undefined;let line:{dir:number[],bbox:number[]}|undefined
    text.walk({beginLine(bbox,_w,dir){line={dir,bbox}},onChar(c,_o,font){if(c==='C'&&!found&&line)found={deg:Math.atan2(-line.dir[1],line.dir[0])*180/Math.PI,cx:(line.bbox[0]+line.bbox[2])/2-b[0],cy:(line.bbox[1]+line.bbox[3])/2-b[1],font:font.getName()}}})

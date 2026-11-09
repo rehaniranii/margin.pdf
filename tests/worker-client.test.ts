@@ -46,7 +46,7 @@ test('utility worker failures offer recovery within page tools without discardin
   globalThis.Worker = FailedWorker as unknown as typeof Worker
   try {
     const client = new PdfWorkerClient(undefined, 'tools')
-    const pending = client.request({ type:'tool-build', spec:{kind:'pages',pages:[],acceptFlattening:true} })
+    const pending = client.request({ type:'tool-build', spec:{kind:'pages',pages:[]} })
     instance!.onerror?.()
     await assert.rejects(pending, /Close and reopen Page tools.*editor is unchanged/)
     await assert.rejects(client.request({type:'tool-release',id:'source'}), /Close and reopen Page tools/)

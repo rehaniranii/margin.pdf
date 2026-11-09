@@ -3,7 +3,8 @@ import type { ImageExport, UtilityArtifact, UtilitySource, UtilitySpec } from '.
 export type Command =
   | { type: 'tool-source'; id: string; kind: 'pdf' | 'image'; bytes: ArrayBuffer }
   | { type: 'tool-release'; id: string }
-  | { type: 'tool-build'; spec: UtilitySpec }
+  // quiet: a live preview; no progress messages, so the busy bar stays hidden.
+  | { type: 'tool-build'; spec: UtilitySpec; quiet?: boolean }
   | { type: 'tool-font'; name: string; bytes: ArrayBuffer }
   | { type: 'tool-textless'; sourceId: string }
   | { type: 'tool-thumb'; sourceId: string; page: number; width: number }

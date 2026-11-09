@@ -5,14 +5,14 @@ import type { Request, Response, Result } from './protocol'
 import { PdfUtilities } from '../engine/pdf-utilities'
 
 let session: EditorSession | undefined
-let activeId = 0
-const progress = (label: string) => self.postMessage({ id: activeId, progress: label })
+let activeId = 0, quiet = false
+const progress = (label: string) => { if (!quiet) self.postMessage({ id: activeId, progress: label }) }
 const utilities = new PdfUtilities(progress)
 
 function execute({ command }: Request): Result {
   if (command.type === 'tool-source') return utilities.add(command.id, command.kind, command.bytes)
   if (command.type === 'tool-release') { utilities.release(command.id); return { released: true } }
-  if (command.type === 'tool-build') return utilities.build(command.spec)
+  if (command.type === 'tool-build') { quiet = !!command.quiet; try { return utilities.build(command.spec) } finally { quiet = false } }
   if (command.type === 'tool-font') { utilities.addFont(command.name, command.bytes); return { released: true } }
   if (command.type === 'tool-textless') return utilities.textless(command.sourceId)
   if (command.type === 'tool-thumb') return utilities.thumbnail(command.sourceId, command.page, command.width)

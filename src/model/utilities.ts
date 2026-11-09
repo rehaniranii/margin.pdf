@@ -19,7 +19,7 @@ export type Crop = { top: number; right: number; bottom: number; left: number; p
 export type CompressLevel = 'lossless' | 'balanced' | 'small'
 export type RedactPattern = 'email' | 'phone'
 export type UtilitySpec =
-  | { kind: 'pages'; pages: PlannedPage[]; stamp?: Stamp; crop?: Crop; acceptFlattening: boolean }
+  | { kind: 'pages'; pages: PlannedPage[]; stamp?: Stamp; crop?: Crop }
   | { kind: 'images'; sources: string[]; paper: 'fit' | 'a4'; margin: number }
   | { kind: 'compress'; source: string; level: CompressLevel }
   | { kind: 'redact'; source: string; terms: string[]; patterns: RedactPattern[]; matchCase: boolean }

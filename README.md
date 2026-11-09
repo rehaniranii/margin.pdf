@@ -234,8 +234,12 @@ form interaction and comment data are removed. Links, bookmarks, document metada
 attachments, tags and page labels are not copied. Missing/stale appearances and
 unapplied redaction appearances need particular care; this is not sanitization or
 applying pending redactions. Documents with optional-content layers or XFA forms
-are rejected until a locally flattened copy is supplied. Review/acknowledgment of
-these changes is required inside the tool before PDF generation.
+are rejected until a locally flattened copy is supplied. The tool lists, before
+generating, only the losses that apply to the chosen files (links, bookmarks, comments,
+form fields, signature validity); there is no separate acknowledgment step.
+
+Watermark and Page numbers show a live preview of the first selected page, rebuilt
+quietly (no progress bar, form stays editable) about 350 ms after each change.
 
 Digital signature validity is not preserved by these transformations. A static
 signature appearance may remain. Populated signature fields, signature ByteRange
