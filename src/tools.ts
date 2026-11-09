@@ -7,7 +7,7 @@ export const categories: { id: Category; note: string }[] = [
   { id: 'Organize', note: 'Pages in, pages out' },
   { id: 'Stamp', note: 'Mark every page at once' },
   { id: 'Convert', note: 'Change format or file size' },
-  { id: 'Protect', note: 'Remove what should not be shared' },
+  { id: 'Protect', note: 'Passwords, and what should not be shared' },
 ]
 
 // `tab` tools run on their own page; the others open the editor.
@@ -23,6 +23,8 @@ export const tools: Tool[] = [
   { id: 'images-to-pdf', tab: 'from-images', name: 'Images to PDF', category: 'Convert', accepts: 'image', blurb: 'Bundle JPG and PNG files into one PDF.', intro: 'Add images in the order you want them, pick a paper size, and download.', icon: 'M4 5h16v14H4zM4 16l5-5 4 4 2-2 5 5M15 9h.01' },
   { id: 'compress', tab: 'compress', name: 'Compress', category: 'Convert', accepts: 'pdf', blurb: 'Make a PDF small enough to email.', intro: 'Repack the file and shrink oversized photos. Text and drawings stay sharp.', icon: 'M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5' },
   { id: 'redact', tab: 'redact', name: 'Redact', category: 'Protect', accepts: 'pdf', blurb: 'Permanently delete names, emails, numbers.', intro: 'Find words, phrases, emails or phone numbers and remove them from the file for good, not just cover them.', icon: 'M4 6h16M4 18h16M4 12h4M10 10h10v4H10z' },
+  { id: 'protect', tab: 'protect', name: 'Protect with password', category: 'Protect', accepts: 'pdf', blurb: 'Lock a PDF so it needs a password to open.', intro: 'Set a password and get an AES-256 encrypted copy. Without the password the file cannot be opened.', icon: 'M6 11h12v9H6zM8 11V8a4 4 0 0 1 8 0v3' },
+  { id: 'unlock', tab: 'unlock', name: 'Unlock', category: 'Protect', accepts: 'pdf', blurb: 'Remove the password from a PDF you can open.', intro: 'Enter the PDF’s password once and get a copy that opens without it. Editing and printing restrictions are removed too.', icon: 'M6 11h12v9H6zM8 11V8a4 4 0 0 1 7.5-2' },
   { id: 'pdf-to-images', tab: 'to-images', name: 'PDF to images', category: 'Convert', accepts: 'pdf', blurb: 'Save pages as PNG or JPG.', intro: 'Choose pages, format and resolution. Each page is saved as its own image.', icon: 'M6 3h8l4 4v14H6zM14 3v4h4M9 17l2-3 2 2 2-3' },
 ]
 

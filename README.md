@@ -182,6 +182,10 @@ Opening from an editor uses its last committed PDF, including text and added obj
   boxes are drawn. The saved result is reopened and searched again; any remaining match
   fails the operation. Scanned (image-only) text, metadata, bookmarks, form values and
   attachments are not searched. Files with pre-existing redaction marks are refused.
+- **Protect / Unlock:** Protect saves an AES-256 encrypted copy (same user and owner
+  password, 4–127 printable ASCII characters, no commas). Unlock needs the real password
+  and saves an unencrypted copy without permission restrictions. Both results are reopened
+  and checked before download. Other tools refuse password-protected files.
 
 PDF generation shows the first page of the actual result and offers Download PDF or
 Open result in editor. **Generation leaves the current editor unchanged. Opening a

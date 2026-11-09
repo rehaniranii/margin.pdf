@@ -22,8 +22,12 @@ export class PdfUtilities {
     let info:UtilitySource
     if(kind==='pdf') {
       this.progress?.('Inspecting PDF features and signatures…')
-      const doc=openPdf(bytes)
-      try { info={id,kind,pageCount:doc.countPages(),features:pdfFeatures(doc)} } finally {doc.destroy()}
+      const probe=new mupdf.PDFDocument(bytes)
+      let locked:boolean
+      try{locked=probe.needsPassword()}finally{probe.destroy()}
+      // Locked files can only be unlocked; page count and features need the password.
+      if(locked) info={id,kind,pageCount:0,locked}
+      else {const doc=openPdf(bytes);try { info={id,kind,pageCount:doc.countPages(),features:pdfFeatures(doc)} } finally {doc.destroy()}}
     } else {
       const {width,height}=imageDimensions(bytes)
       if(!width||!height||width*height>32_000_000) throw new Error('This image exceeds the 32-million-pixel decoding budget. Resize it locally first.')
@@ -33,9 +37,10 @@ export class PdfUtilities {
     this.sources.set(id,{bytes,info});return info
   }
   release(id:string){this.sources.delete(id)}
-  private source(id:string,kind:'pdf'|'image') {const value=this.sources.get(id);if(!value||value.info.kind!==kind) throw new Error('A source is missing. Add the file again.');return value}
+  private source(id:string,kind:'pdf'|'image',allowLocked=false) {const value=this.sources.get(id);if(!value||value.info.kind!==kind) throw new Error('A source is missing. Add the file again.');if(value.info.locked&&!allowLocked) throw new Error('This PDF is password-protected. Remove the password with the Unlock tool first.');return value}
   build(spec:UtilitySpec):UtilityArtifact {
     if(spec.kind==='compress'||spec.kind==='redact') return this.rewrite(spec)
+    if(spec.kind==='protect'||spec.kind==='unlock') return this.password(spec)
     const doc=new mupdf.PDFDocument()
     try {
       if(spec.kind==='pages') this.assemble(doc,spec.pages,spec.acceptFlattening)
@@ -79,6 +84,31 @@ export class PdfUtilities {
           summary+=after<before?`${formatSize(before)} → ${formatSize(after)}, ${saved}% smaller.`:`${formatSize(before)} → ${formatSize(after)}. This file was already compact; keep the original.`
         }
         return {bytes:bytes.buffer,preview:render(reopened,previewPage,0.65,1),pageCount:reopened.countPages(),summary:summary.trim()}
+      } finally{reopened.destroy()}
+    } finally{doc.destroy()}
+  }
+  private password(spec:Extract<UtilitySpec,{kind:'protect'|'unlock'}>):UtilityArtifact {
+    if(typeof spec.password!=='string') throw new Error('The password request is malformed.')
+    const source=this.source(spec.source,'pdf',spec.kind==='unlock'),doc=new mupdf.PDFDocument(source.bytes)
+    try {
+      let options:string
+      if(spec.kind==='protect') {
+        // mupdf splits save options on commas, so a comma would silently truncate the password.
+        if(!/^[\x20-\x7e]{4,127}$/.test(spec.password)||spec.password.includes(',')) throw new Error('Use a password of 4 to 127 basic Latin characters, without commas.')
+        options=`garbage=4,compress,encrypt=aes-256,user-password=${spec.password},owner-password=${spec.password}`
+      } else {
+        if(doc.needsPassword()&&!doc.authenticatePassword(spec.password)) throw new Error('That password is not correct. Nothing was saved.')
+        options='garbage=4,compress,encrypt=none'
+      }
+      this.progress?.('Saving and checking the result…')
+      const bytes=save(doc,options),reopened=new mupdf.PDFDocument(bytes)
+      try {
+        reopened.disableJS()
+        // Verify the saved file: protected must demand exactly this password, unlocked must open without one.
+        if(spec.kind==='protect'&&(!reopened.needsPassword()||!reopened.authenticatePassword(spec.password))) throw new Error('The password could not be verified on the saved file. Nothing was saved.')
+        if(spec.kind==='unlock'&&reopened.needsPassword()) throw new Error('The password could not be removed. Nothing was saved.')
+        const pageCount=reopened.countPages()
+        return {bytes:bytes.buffer,preview:render(reopened,0,0.65,1),pageCount,summary:spec.kind==='protect'?'Encrypted with AES-256. The password is needed to open this copy.':'Password removed. This copy opens without one.'}
       } finally{reopened.destroy()}
     } finally{doc.destroy()}
   }

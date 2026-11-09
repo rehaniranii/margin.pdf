@@ -64,7 +64,7 @@ a:hover .tool-icon path,button:hover .tool-icon path{animation:draw .6s ease bot
 .tool-title p{margin:6px 0 0;color:var(--muted);font-size:16px;line-height:1.6}
 .local-line{display:flex;align-items:center;gap:8px;margin:18px 0 0;font-size:13px;color:var(--ok)}
 .local-line span{width:7px;height:7px;border-radius:50%;background:currentColor;box-shadow:0 0 0 3px var(--ok-tint)}
-.utility-page{display:block;position:static;width:auto;max-height:none;overflow:visible;margin:0;border:1px solid var(--line);border-radius:10px;box-shadow:0 18px 40px -28px var(--shadow);animation:rise .5s cubic-bezier(.2,.7,.2,1) both}
+.utility-dialog.utility-page{display:block;position:static;width:auto;max-height:none;overflow:visible;margin:0;border:1px solid var(--line);border-radius:10px;box-shadow:0 18px 40px -28px var(--shadow);animation:rise .5s cubic-bezier(.2,.7,.2,1) both}
 .utility-page .utility-form>h3{display:none}
 .utility-page .utility-layout{min-height:420px}
 .related{padding:44px 0 0}

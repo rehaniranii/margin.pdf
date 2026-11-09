@@ -124,3 +124,20 @@ test('page copying retains a transparency group and searchable committed source 
  const source=fixture(),session=new EditorSession(source),tools=new PdfUtilities()
  try{const region=session.view(0,1,1).text.regions.find(r=>r.text==='Original editable line')!;session.apply({type:'replace-text',page:0,regionId:region.id,text:'Changed first.',font:'Helvetica',size:18,color:'#000000'},1,1);const current=session.export();using(current,doc=>{const page=doc.findPage(0);page.put('Group',{Type:'Group',S:'Transparency',CS:'DeviceRGB',I:true});page.destroy();const grouped=saved(doc);tools.add('edited','pdf',grouped.buffer);const result=tools.build({kind:'pages',pages:[entry('edited')],acceptFlattening:true});using(grouped,original=>using(result.bytes,output=>{assert.deepEqual(new Uint8Array(render(output,0,1,1).png),new Uint8Array(render(original,0,1,1).png));assert.match(inspect(output).text,/Changed first/);assert.ok(!inspect(output).text.includes('Original editable line'));const p=output.findPage(0),g=p.get('Group');try{assert.ok(g.isDictionary())}finally{g.destroy();p.destroy()}}))})}finally{tools.dispose();session.dispose()}
 })
+
+test('protect encrypts with a verified password; unlock needs it and removes encryption; other tools refuse locked files',()=>{
+ const tools=new PdfUtilities()
+ try{
+  tools.add('sample','pdf',createSample().buffer)
+  assert.throws(()=>tools.build({kind:'protect',source:'sample',password:'a,b,c,d'}),/without commas/)
+  assert.throws(()=>tools.build({kind:'protect',source:'sample',password:'abc'}),/4 to 127/)
+  const locked=tools.build({kind:'protect',source:'sample',password:'s3cret=ok'})
+  const raw=new mupdf.PDFDocument(locked.bytes);try{assert.ok(raw.needsPassword());assert.ok(!raw.authenticatePassword('wrong'));assert.ok(raw.authenticatePassword('s3cret=ok'))}finally{raw.destroy()}
+  assert.throws(()=>openPdf(locked.bytes),/Unlock tool/)
+  const info=tools.add('locked','pdf',locked.bytes.slice(0));assert.equal(info.locked,true)
+  assert.throws(()=>tools.build({kind:'compress',source:'locked',level:'lossless'}),/Unlock tool/)
+  assert.throws(()=>tools.build({kind:'unlock',source:'locked',password:'wrong'}),/not correct/)
+  const open=tools.build({kind:'unlock',source:'locked',password:'s3cret=ok'})
+  assert.equal(open.pageCount,2);assert.match(using(open.bytes,doc=>inspect(doc).text),new RegExp(ORIGINAL_TEXT.replace('.','\\.')))
+ }finally{tools.dispose()}
+})

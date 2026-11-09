@@ -7,7 +7,7 @@ export function openPdf(bytes: ArrayBuffer | Uint8Array): mupdf.PDFDocument {
   const document = new mupdf.PDFDocument(bytes)
   try {
     document.disableJS()
-    if (document.needsPassword()) throw new Error('Password-protected PDFs are not supported in this foundation preview.')
+    if (document.needsPassword()) throw new Error('This PDF is password-protected. Remove the password with the Unlock tool first.')
     if (!document.countPages()) throw new Error('This PDF has no pages to display.')
     return document
   } catch (error) { document.destroy(); throw error }
