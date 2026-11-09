@@ -33,6 +33,7 @@ export function offlineBuild(buildId: string): Plugin {
     async closeBundle(){
       const out=resolve(config.root,config.build.outDir)
       const assets=await assetManifest(out)
+      if(assets.some(asset=>/\.(gz|br)$/.test(asset.url)))throw new Error('Precompressed .gz/.br assets are decoded in transit and would fail offline verification; emit them as .bin.')
       if(!assets.some(asset=>asset.url.endsWith('.wasm'))||!assets.some(asset=>/\/pdf\.worker-.*\.js$/.test(asset.url)))throw new Error('The offline build is missing its PDF worker or WASM engine.')
       const template=await readFile(resolve(config.root,'src/offline/service-worker.js'),'utf8')
       const manifest={buildId,version:digest(JSON.stringify(assets)+template+buildId).slice(0,24),assets}

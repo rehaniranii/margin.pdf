@@ -21,6 +21,8 @@ async page => {
  await page.getByRole('textbox',{name:'Zoom percent',exact:true}).fill('100')
  await page.getByRole('textbox',{name:'Zoom percent',exact:true}).press('Enter')
  await page.waitForFunction(()=>!document.querySelector('.page-stage[aria-busy="true"]'))
+ // The editor swaps in a new page image once it has decoded; wait until the shown bitmap matches the 100% zoom.
+ await page.waitForFunction(()=>{const img=document.querySelector('img.page-bitmap');return img&&Math.abs(img.naturalWidth-img.parentElement.clientWidth*devicePixelRatio)<=1})
  const preview=await page.locator('img.page-bitmap').evaluate(async img=>{
   const canvas=document.createElement('canvas');canvas.width=img.naturalWidth;canvas.height=img.naturalHeight
   const ctx=canvas.getContext('2d');ctx.drawImage(img,0,0)

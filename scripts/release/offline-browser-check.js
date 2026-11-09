@@ -34,7 +34,7 @@ async page => {
   await page.getByRole('button',{name:'Page tools',exact:true}).click()
   const dialog=page.getByRole('dialog')
   await dialog.getByRole('button',{name:'Page numbers',exact:true}).click()
-  await dialog.getByRole('button',{name:'Generate preview',exact:true}).click()
+  await dialog.getByRole('button',{name:'Add page numbers',exact:true}).click()
   await dialog.getByRole('img',{name:'First page of generated PDF',exact:true}).waitFor()
   const utilityDownload=page.waitForEvent('download')
   await dialog.getByRole('button',{name:'Download PDF',exact:true}).click()

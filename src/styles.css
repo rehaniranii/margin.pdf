@@ -168,3 +168,5 @@ textarea::placeholder,input::placeholder{color:var(--faint);opacity:1}
 @font-face{font-family:'Dancing Script';src:url('./assets/fonts/DancingScript.ttf') format('truetype');font-display:swap}@font-face{font-family:'Great Vibes';src:url('./assets/fonts/GreatVibes-Regular.ttf') format('truetype');font-display:swap}
 .choice-list.inline>.utility-check{flex:none;white-space:nowrap;align-items:center}
 .copy-note{background:var(--warn-tint);color:var(--warn);padding:10px 12px;border-radius:6px;margin:0}.live-preview>p:first-child{color:var(--muted);margin:0 0 4px}
+/* Absolutely positioned helpers (e.g. visually-hidden submit buttons) must be clipped by the scrolling toolbar, not widen the page. */
+.workspace-tools{position:relative}

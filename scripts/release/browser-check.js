@@ -33,8 +33,11 @@ async page => {
     await page.screenshot({path:`output/phase6/inline-${file}.png`,scale:'css'})
    }
    if(file==='digital.pdf'){
+    // Accented Latin (WinAnsi) is supported; letters outside it, like Polish Ł, are not.
     await input.fill('Café')
-    await page.getByText('This replacement contains unsupported characters. Use basic Latin letters, numbers, and punctuation.',{exact:true}).waitFor()
+    check(!await page.getByText('This replacement contains unsupported characters.',{exact:false}).isVisible(),'Accented Latin must be accepted')
+    await input.fill('Łódź')
+    await page.getByText('This replacement contains unsupported characters. Use Latin letters, including accents like é ü ñ ç ø, numbers and punctuation. Other scripts and emoji are not supported yet.',{exact:true}).waitFor()
     check(await page.getByRole('button',{name:'Apply changes',exact:true}).isDisabled(),'Unsupported characters must block Apply')
    }
    await input.fill('QA edit.')
@@ -57,7 +60,11 @@ async page => {
    await page.getByRole('textbox',{name:'Go to page number',exact:true}).fill('250')
    await page.getByRole('textbox',{name:'Go to page number',exact:true}).press('Enter')
    await page.getByRole('img',{name:'PDF page 250',exact:true}).waitFor()
-   check(await page.locator('.page-tile').count()<=7,'Large document navigation must stay windowed')
+   // The page list and the continuous page stack hold a slot per page, but only load images near the view.
+   await page.waitForTimeout(1500)
+   // Stand-ins reuse the page-list thumbnail; only full renders (any other source) cost extra memory.
+   const loaded=await page.evaluate(()=>{const thumbs=new Set([...document.querySelectorAll('.page-tile .mini-page img')].map(img=>img.src));return {thumbs:thumbs.size,renders:[...document.querySelectorAll('.page-ghost img')].filter(img=>!thumbs.has(img.src)).length}})
+   check(loaded.thumbs<=40&&loaded.renders<=8,`Large documents must load page images lazily (${loaded.thumbs} thumbnails, ${loaded.renders} full page renders)`)
    await page.screenshot({path:'output/phase6/large-document.png',scale:'css'})
   }else{
    const size=await page.locator('img.page-bitmap').evaluate(img=>({width:img.naturalWidth,height:img.naturalHeight}))

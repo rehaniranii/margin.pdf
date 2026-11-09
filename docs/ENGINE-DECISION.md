@@ -66,6 +66,8 @@ Direct dependency metadata reviewed:
 | Dependency | Version | Declared license | Role |
 | --- | --- | --- | --- |
 | mupdf | 1.28.1 | AGPL-3.0-or-later | PDF engine and WASM |
+| tesseract.js-core | 6.1.2 | Apache-2.0 | OCR engine (WASM), added after Phase 6 |
+| @tesseract.js-data/eng | 1.0.0 | MIT packaging; Apache-2.0 model data | English OCR data, added after Phase 6 |
 | react / react-dom | 19.3.1 | MIT | Interface |
 | vite | 8.3.6 | MIT | Build tooling |
 | typescript | 7.0.2 | Apache-2.0 | Type checking |
@@ -75,7 +77,8 @@ Direct dependency metadata reviewed:
 
 The lockfile pins transitive dependencies. Phase 6 inventories every locked npm
 package and verifies the four runtime license copies against installed packages.
-No additional PDF library or downloaded font is included. The distribution route,
+No additional PDF library is included. Two OFL fonts and the OCR engine were added after
+Phase 6; see the post-Phase-6 review at the end of this document. The distribution route,
 corresponding-source delivery and MuPDF's bundled-component notice obligations still
 require resolution before distribution; an npm metadata inventory is not legal clearance.
 
@@ -158,3 +161,52 @@ release, so installed declarations and executable fixtures are used to confirm b
 a route and meet its applicable source, notice and bundled-component obligations
 before distributing this app/WASM. No commercial license, application license or
 distribution authorization is inferred from this local verification work.
+
+## Post-Phase-6 additions (reviewed 2026-11-09)
+
+Three things now ship in the production output besides MuPDF and React:
+
+| Component | License | Ships as | Notice in `public/licenses/` |
+| --- | --- | --- | --- |
+| tesseract.js-core 6.1.2 (Tesseract compiled to WASM) | Apache-2.0 | OCR worker and `tesseract-core-simd-lstm` WASM | `tesseract.js-core-LICENSE.txt` |
+| English OCR data, eng 4.0.0_best_int (`@tesseract.js-data/eng` 1.0.0) | Apache-2.0 model data (Tesseract `tessdata_best`); package metadata MIT | `eng.traineddata-*.bin` | `tesseract-eng-traineddata-LICENSE.txt` |
+| Dancing Script, Great Vibes (from `google/fonts`, unmodified) | SIL Open Font License 1.1 | `.ttf` assets; subsets embedded in signed PDFs | `DancingScript-OFL.txt`, `GreatVibes-OFL.txt` |
+
+`npm run release:licenses` now inventories 100 locked packages (62 MIT, 23 Apache-2.0,
+12 MPL-2.0, one ISC, one BSD-3-Clause, one AGPL-3.0-or-later). The npm runtime packages
+are MuPDF, React, React DOM, Scheduler, tesseract.js-core and `@tesseract.js-data/eng`.
+The data package ships no license file, so its notice was written by hand from the
+tessdata source and is listed explicitly in the script as a reviewed exception; every
+other runtime license copy still matches the installed file byte for byte. The fonts
+are not npm packages; their OFL texts are copied verbatim from `google/fonts`.
+`THIRD-PARTY-NOTICES.txt` lists all of the above.
+
+Compatibility notes (an engineering reading, not legal advice): Apache-2.0 code can be
+combined into an AGPL-3.0 distribution, so the OCR engine does not block the AGPL route.
+The OFL allows bundling the fonts with software and embedding them (including subsets)
+in documents; the Reserved Font Name only restricts distributing *modified* fonts under
+the same name, and the fonts are shipped unmodified. None of these additions has a
+commercial-licensing implication of its own.
+
+Release-check fixes made during this review: the OCR data was first emitted as a `.gz`
+file, which servers send with `Content-Encoding: gzip`, so the browser received bytes
+that did not match the offline manifest and offline setup failed. It now ships as `.bin`,
+and the offline build refuses any `.gz`/`.br` asset. The full release sequence (unit
+tests, proof, fixtures, licenses, build, PDFKit and all five browser checks) passes.
+
+## What deciding the distribution route involves
+
+Nothing above changes the open decision: MuPDF is AGPL-3.0-or-later and the app is a
+network service, so the owner must still pick one route before public distribution.
+
+- **AGPL route.** License the application's own code under AGPL-3.0-or-later (or a
+  compatible license) and offer every user the complete corresponding source, including
+  build scripts, for the exact deployed version, for example a visible "Source code" link
+  to a public repository tag. Keep the notices above. Anyone may then reuse the app.
+- **Commercial route.** Obtain commercial terms from Artifex for MuPDF; the app's code can
+  then stay private. The OCR engine and fonts need no separate commercial license, but
+  their notices must still ship.
+
+A private preview used only by the owner does not distribute the app. No project-wide
+license has been assigned and no route has been chosen; that remains the owner's call.
+
