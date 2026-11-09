@@ -58,12 +58,13 @@ cross-platform runtime. They were not suppressed, and production browser checks 
 ## Supported text editing
 
 - Unencrypted, digitally generated PDFs with simple, opaque, horizontal source text.
-- Single-style lines or spans with unique, positioned basic Latin glyphs. Typographic
+- Single-style lines or spans with unique, positioned Latin glyphs (accents included). Typographic
   ligatures (ff, fi, fl, ffi, ffl) are edited as their letters, and extraction-inserted
   spaces that are not painted are ignored.
 - Intrinsic page rotations of 0/90/180/270 degrees, nonzero CropBoxes, and UserUnit scaling.
-- Replacement text in printable basic Latin (U+0020–U+007E): letters, numbers,
-  spaces, punctuation. No accents, emoji, complex scripts, or line breaks yet.
+- Replacement text in the WinAnsi set: basic Latin plus Latin-1 accents (é ü ñ ç ø ß),
+  curly quotes, dashes, €, ™. Written as one-byte WinAnsi codes, so it stays searchable.
+  No Central European letters (ł ő č), other scripts, emoji or line breaks yet.
 - The 12 standard PDF fonts (Helvetica, Times, Courier, each regular/bold/italic/bold
   italic). The closest one to the original font name is preselected.
 - Words placed one by one are rejoined into lines, and consecutive same-style lines with
@@ -101,11 +102,16 @@ Detection failures are reported rather than treated as proof that no signatures 
 
 ## Added objects and navigation
 
+Pages scroll continuously in one column. The page across the upper third of the view (or
+the first/last page at the very top/bottom) becomes the editable page once scrolling
+settles; the others are sharp renders while near the view, with a thumbnail as a stand-in.
+The page list, page number box and PageUp/PageDown scroll to the chosen page.
+
 The editor defaults to **Edit existing text**. The other tools add objects above the
 page content; they do not replace or erase original text.
 
 - **Add text:** click/drag a box, or use Place at page center, then type on the page. Use properties for
-  font, size and color. Basic Latin text and line breaks are supported. Overflow is
+  font, size and color. Accented Latin text (the same set as replacements) and line breaks are supported. Overflow is
   rejected until the box is enlarged or the text/font size is reduced.
 - **Add image:** choose a local JPG/PNG and click the page, or use Place at page center.
   Proportions stay locked during corner/numeric resizing. Replace image changes its
@@ -160,14 +166,16 @@ Opening from an editor uses its last committed PDF, including text and added obj
 - **Merge:** add local PDFs, reorder/remove files, then combine their pages in file order.
 - **Extract / split:** select pages such as `1-3, 5` in the desired order. Extract one
   combined PDF or prepare individually downloadable one-page PDFs.
-- **Images to PDF:** add/reorder JPG/PNG images. Fit proportionally on portrait A4 or
-  use image dimensions at 72 pixels/inch, with a configurable 0–100 pt margin.
+- **Images to PDF:** add/reorder JPG/PNG images. Every image fills its page with no
+  border: by default each page takes the image's own size (72 pixels/inch, nothing
+  cropped); A4 turns to match the image's orientation and is covered edge to edge, with
+  any overhang trimmed.
 - **Pages to images:** selected pages become individually downloadable PNG/JPG files
   with white backgrounds, including rendered annotation/form appearances. Requested
   resolution is 36–300 dpi; actual resolution can be lower under the render budget and
   is reported. Downloads are individually user-initiated; no ZIP or automatic batch.
 - **Watermark / Page numbers:** choose pages, size, color, opacity and center/bottom
-  placement. Watermarks use basic Latin in Helvetica. Numbering is “Page n of total”
+  placement. Watermarks use Helvetica with accented Latin. Numbering is “Page n of total”
   in the selected order, with a configurable starting number; total counts selected
   pages. Oversized or unsupported text is rejected. Stamps append above page content
   and can overlap it, so inspect the result.
@@ -182,6 +190,19 @@ Opening from an editor uses its last committed PDF, including text and added obj
   boxes are drawn. The saved result is reopened and searched again; any remaining match
   fails the operation. Scanned (image-only) text, metadata, bookmarks, form values and
   attachments are not searched. Files with pre-existing redaction marks are refused.
+- **Remove hidden data:** flattens comments and form fields into the page, then removes
+  document Info and XMP metadata, JavaScript and automatic actions, attachments, links,
+  bookmarks, named destinations, private application data and earlier saved versions.
+  Accessibility tags are kept. The saved file is rescanned; anything left fails the
+  operation. Files with layers or XFA forms are refused.
+- **Crop pages:** trims margins (points, as seen on screen) from chosen pages by moving
+  the CropBox, so trimmed content remains in the file.
+- **Organize:** a thumbnail grid; drag to reorder (buttons remain for keyboard/touch),
+  rotate, duplicate, insert a blank page sized like its neighbour, remove. Merge and
+  Images to PDF lists are draggable too.
+- **Fill and sign:** fills text, checkbox, radio and dropdown fields and reads every value
+  back from the saved file. Adds a typed (Times Italic), drawn or uploaded visual signature
+  placed by clicking the page. Optional flattening. Not certificate-based digital signing.
 - **Protect / Unlock:** Protect saves an AES-256 encrypted copy (same user and owner
   password, 4–127 printable ASCII characters, no commas). Unlock needs the real password
   and saves an unencrypted copy without permission restrictions. Both results are reopened

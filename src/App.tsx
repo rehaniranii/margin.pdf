@@ -1,7 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { PdfWorkerClient } from './workers/client'
 import type { OpenResult } from './workers/protocol'
-import type { AddedObject, AddedText, EditorTool, EditorView, ImageAssetInfo, ObjectBox, Point, RenderedPage, SessionCheckpoint, TextEdit, TextRegion, WorkingDocument } from './model/document'
+import type { AddedObject, AddedText, EditorTool, EditorView, ImageAssetInfo, ObjectBox, Point, Rect, RenderedPage, SessionCheckpoint, TextEdit, TextRegion, WorkingDocument } from './model/document'
 import type { PdfFeatures } from './model/utilities'
 import { textDraft } from './model/text-draft'
 import { UtilityPanel } from './components/UtilityPanel'
@@ -9,6 +9,7 @@ import type { UtilityTab } from './components/UtilityPanel'
 import type { InlineDraft } from './components/InlineTextEditor'
 import { PagePreview } from './components/PagePreview'
 import { PageRail } from './components/PageRail'
+import { PageStack } from './components/PageStack'
 import { TextProperties } from './components/TextProperties'
 import { downloadPdf } from './export/download'
 import { takeHandOff } from './handoff'
@@ -44,6 +45,11 @@ export default function App() {
   const [zoom, setZoom] = useState(0.9)
   const [busy, setBusy] = useState('Starting PDF engine…')
   useDocumentActivity(!!busy)
+  // Controls dim and the progress bar appears only if work takes a moment. Quick edits
+  // would otherwise flash every button. `run`'s inFlight guard still blocks double actions.
+  const [slowBusy, setSlowBusy] = useState(false)
+  useEffect(() => { if (!busy) { setSlowBusy(false); return } const timer = setTimeout(() => setSlowBusy(true), 400); return () => clearTimeout(timer) }, [!!busy])
+  const shown = slowBusy ? busy : ''
   const [error, setError] = useState('')
   const [selection, setSelection] = useState<string>()
   const [propertyDirty, setDirty] = useState(false)
@@ -64,6 +70,11 @@ export default function App() {
   // clears them; an edit, undo or redo re-renders only pages whose edits or added items changed,
   // keeping the old preview on screen until the new one is ready.
   const [thumbs,setThumbs] = useState<Record<number,string>>({})
+  const [pageSizes,setPageSizes] = useState<Rect[]>([])
+  // Per-page version for the continuous page stack: a page re-renders when its edits or added items change.
+  const pageStamps = useMemo(() => { const next: Record<number,string> = {}; for (const item of [...view?.edits ?? [], ...view?.objects ?? []]) next[item.page] = (next[item.page] ?? '') + JSON.stringify(item); return next }, [view?.revision, document?.source.id])
+  const stampFor = useCallback((index: number) => pageStamps[index] ?? '', [pageStamps])
+  const renderPage = useCallback((index: number, scale: number) => client.current!.request<RenderedPage>({ type: 'page-image', page: index, scale, dpr: window.devicePixelRatio }), [])
   const thumbsRef = useRef(thumbs); thumbsRef.current = thumbs
   const thumbQueue = useRef<number[]>([])
   const thumbRunning = useRef(false)
@@ -116,7 +127,7 @@ export default function App() {
     const requested=requestedUtility.current;requestedUtility.current=null
     const handed=takeHandOff()
     if(handed)void openFile(handed.file,handed.hasLocalCopy)
-    else if(requested&&['organize','merge','extract','from-images','to-images','watermark','numbers','compress','redact','protect','unlock'].includes(requested)){setInitialUtility(requested as UtilityTab);setUtilitiesOpen(true);setBusy('')}else setBusy('')
+    else if(requested&&['organize','merge','extract','from-images','to-images','watermark','numbers','compress','redact','protect','unlock','sanitize','crop','fill'].includes(requested)){setInitialUtility(requested as UtilityTab);setUtilitiesOpen(true);setBusy('')}else setBusy('')
     return () => { generation.current++; client.current?.dispose() }
   }, [])
 
@@ -153,7 +164,7 @@ export default function App() {
     setDocument({ source: { id: sourceId, name, kind, bytes: result.source }, pages: Array.from({ length: result.info.pageCount }, (_, i) => ({ sourceId, sourcePage: i, rotation: 0 })), edits: [], objects: [], revision: 0 })
     checkpoint.current = { frames:[{edits:[],objects:[]}],position:0,pdf:result.source,revision:0 }
     assetFiles.current.clear(); setPendingImage(undefined); setObjectSelection(undefined); setTool('edit')
-    resetScroll.current = true
+    resetScroll.current = true; setPageSizes(result.info.sizes ?? [])
     setView(result.view); setZoom(result.scale); setPage(0); setPageInput('1'); setZoomInput(String(Math.round(result.scale*100))); setSelection(undefined); setDirty(false)
   }
 
@@ -167,7 +178,8 @@ export default function App() {
     }, 'Opening and checking PDF text…')
   }
 
-  async function navigate(nextPage: number, nextZoom = zoom) {
+  // keepScroll: the user scrolled to this page in the stack, so leave the scroll position alone.
+  async function navigate(nextPage: number, nextZoom = zoom, keepScroll = false) {
     if (dirty && nextPage !== page) { setError('Apply or discard your text changes before switching pages.'); return }
     if (nextPage === page && nextZoom !== zoom && view) {
       const stage = preview.current?.querySelector<HTMLElement>('.page-stage'), paper = preview.current?.querySelector<HTMLElement>('.page-paper')
@@ -180,7 +192,7 @@ export default function App() {
       const result = await worker.request<EditorView>({ type: 'view', page: nextPage, scale: nextZoom, dpr: window.devicePixelRatio })
       if (token !== generation.current) return
       commitView(result); setZoom(nextZoom); setZoomInput(String(Math.round(nextZoom*100)))
-      if (nextPage !== page) { setSelection(undefined); setObjectSelection(undefined); setDirty(false); resetScroll.current = true }
+      if (nextPage !== page) { setSelection(undefined); setObjectSelection(undefined); setDirty(false); resetScroll.current = !keepScroll }
       setPage(nextPage); setPageInput(String(nextPage+1))
     }, 'Rendering page…')
   }
@@ -188,14 +200,23 @@ export default function App() {
   useLayoutEffect(() => {
     const stage = preview.current?.querySelector<HTMLElement>('.page-stage'), paper = preview.current?.querySelector<HTMLElement>('.page-paper')
     if (!stage || !paper || !view) return
-    if (resetScroll.current) { stage.scrollLeft = 0; stage.scrollTop = 0; resetScroll.current = false; zoomAnchor.current = undefined }
+    if (resetScroll.current) {
+      // Bring the chosen page's top into view; pages are stacked in one scrolling column.
+      const slot = stage.querySelector<HTMLElement>(`[data-page="${page}"]`)
+      stage.scrollLeft = 0; stage.scrollTop = slot ? stage.scrollTop + slot.getBoundingClientRect().top - stage.getBoundingClientRect().top - 16 : 0
+      resetScroll.current = false; zoomAnchor.current = undefined
+    }
     else if (zoomAnchor.current) {
       const anchor = zoomAnchor.current, frame = stage.getBoundingClientRect(), rect = paper.getBoundingClientRect(), image = view.image
       stage.scrollLeft += rect.left + (anchor.point[0]*image.rasterScale-image.pixelOrigin[0])/image.width*rect.width - frame.left-anchor.viewport[0]
       stage.scrollTop += rect.top + (anchor.point[1]*image.rasterScale-image.pixelOrigin[1])/image.height*rect.height - frame.top-anchor.viewport[1]
       zoomAnchor.current = undefined
     }
+    // Tell the page stack this position was set by the editor, not scrolled to by the user.
+    stage.dataset.scrolledTo = String(Math.round(stage.scrollTop))
   },[view?.image,zoom])
+
+  function activatePage(index: number) { if (index !== page && !dirty && !inFlight.current) void navigate(index, zoom, true) }
 
   function fitWholePage() {
     if (!view) return
@@ -373,7 +394,7 @@ export default function App() {
     if(imageInput.current)imageInput.current.value=''
     replacingImage.current=undefined;lastPointer.current=undefined;zoomAnchor.current=undefined
     setInlineSource(false);setInlineAdded(undefined);setDraftText(undefined);setFeatures(undefined)
-    setDocument(undefined);setDownloaded(undefined); setView(undefined); setPage(0); setSelection(undefined); setDirty(false); setError(''); setBusy('')
+    setDocument(undefined);setPageSizes([]);setDownloaded(undefined); setView(undefined); setPage(0); setSelection(undefined); setDirty(false); setError(''); setBusy('')
   }
 
   function exportPdf() {
@@ -440,24 +461,24 @@ export default function App() {
     <header className="app-header">
       <a href="./" className="brand" aria-label="margin.pdf home"><span className="brand-mark" aria-hidden="true"/>margin<span className="brand-extension">.pdf</span></a>
       <div className="document-identity"><strong title={document?.source.name}>{document?.source.name ?? 'No document open'}</strong>{document && document.edits.length + document.objects.length > 0 && <span className="edited-badge">{document.edits.length + document.objects.length} {document.edits.length + document.objects.length === 1 ? 'change' : 'changes'}</span>}{(document||busy)&&<button className="icon-button" aria-label="Clear workspace" title={busy?"Cancel and close document":"Close document"} onClick={clear}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>}</div>
-      <div className="header-actions"><div className="history-actions"><button aria-label="Undo document change" title="Undo (Ctrl/Cmd+Z)" disabled={!!busy || !view?.canUndo || dirty} onClick={() => history('undo')}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button><button aria-label="Redo document change" title="Redo (Ctrl/Cmd+Shift+Z)" disabled={!!busy || !view?.canRedo || dirty} onClick={() => history('redo')}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 14 5-5-5-5M20 9H10a6 6 0 0 0 0 12h3"/></svg></button></div><button className="secondary" onClick={() => input.current?.click()} disabled={!!busy || dirty}><span aria-hidden="true">↥</span> Open PDF</button><button className="primary" disabled={!document || !!busy || dirty} onClick={exportPdf} title={dirty ? 'Apply or discard text changes before export' : 'Download the PDF shown in the preview'}>Export PDF <span aria-hidden="true">↓</span></button></div>
+      <div className="header-actions"><div className="history-actions"><button aria-label="Undo document change" title="Undo (Ctrl/Cmd+Z)" disabled={!!shown || !view?.canUndo || dirty} onClick={() => history('undo')}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button><button aria-label="Redo document change" title="Redo (Ctrl/Cmd+Shift+Z)" disabled={!!shown || !view?.canRedo || dirty} onClick={() => history('redo')}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 14 5-5-5-5M20 9H10a6 6 0 0 0 0 12h3"/></svg></button></div><button className="secondary" onClick={() => input.current?.click()} disabled={!!shown || dirty}><span aria-hidden="true">↥</span> Open PDF</button><button className="primary" disabled={!document || !!shown || dirty} onClick={exportPdf} title={dirty ? 'Apply or discard text changes before export' : 'Download the PDF shown in the preview'}>Export PDF <span aria-hidden="true">↓</span></button></div>
       <input ref={imageInput} type="file" accept="image/png,image/jpeg,.jpg,.jpeg,.png" hidden onChange={event => { void importImage(event.target.files?.[0]); event.target.value = '' }}/><input ref={input} type="file" accept="application/pdf,.pdf" hidden onChange={event => { void openFile(event.target.files?.[0]); event.target.value = '' }}/>
     </header>
-    <div className="workspace-tools"><ToolBar tool={tool} busy={!!busy || !document} onChoose={chooseTool}/><label className="regions-toggle" title="Outline every piece of text that can be edited"><input type="checkbox" checked={showRegions} onChange={event => setShowRegions(event.target.checked)}/> Show editable text</label><div className="viewer-controls"><button aria-label="Zoom out" disabled={!document || !!busy || zoom <= 0.1} onClick={() => navigate(page, Math.max(0.1, zoom - 0.1))}>−</button><form className="zoom-form" onSubmit={event => {event.preventDefault();const value=Number(zoomInput);if (!Number.isFinite(value)||value<10||value>400) setError('Enter zoom from 10% to 400%.');else void navigate(page,value/100)}}><input aria-label="Zoom percent" inputMode="numeric" value={zoomInput} onChange={event=>setZoomInput(event.target.value)} disabled={!!busy || !document}/><span>%</span><button className="visually-hidden" type="submit">Apply zoom</button></form><button aria-label="Zoom in" disabled={!document || !!busy || zoom >= 4} onClick={() => navigate(page, Math.min(4, zoom + 0.1))}>+</button><button className="fit-button" aria-label="Fit page width" disabled={!document || !!busy} onClick={fitPage}>Width</button><button className="fit-button" aria-label="Fit whole page" disabled={!document || !!busy} onClick={fitWholePage}>Page</button><span className="toolbar-divider"/><button aria-label="Previous page" disabled={!document || !!busy || page === 0} onClick={() => navigate(page - 1)}>‹</button><form className="page-jump" onSubmit={event=>{event.preventDefault();const value=Number(pageInput);if (!Number.isInteger(value)||value<1||value>(document?.pages.length??0)) setError(`Enter a page from 1 to ${document?.pages.length??0}.`);else void navigate(value-1)}}><input aria-label="Go to page number" inputMode="numeric" value={pageInput} onChange={event=>setPageInput(event.target.value)} disabled={!document || !!busy}/><span>/ {document?.pages.length??0}</span><button className="visually-hidden" type="submit">Go to page</button></form><button aria-label="Next page" disabled={!document || !!busy || page + 1 >= document.pages.length} onClick={() => navigate(page + 1)}>›</button></div><div className="clipboard-tools"><button disabled={!!busy||dirty||!document} onClick={pasteFromClipboard} title="Paste text or an image (Ctrl/Cmd+V)">Paste</button>{selected&&<button disabled={!!busy} onClick={()=>{if(!navigator.clipboard?.writeText){setError('Use Ctrl/Cmd+C to copy the selected text.');return}void navigator.clipboard.writeText(applied?.text??selected.text).catch(()=>setError('Use Ctrl/Cmd+C to copy the selected text.'))}}>Copy text</button>}<button onClick={openTools} disabled={!!busy||dirty}>Page tools</button></div></div>
+    <div className="workspace-tools"><ToolBar tool={tool} busy={!!shown || !document} onChoose={chooseTool}/><label className="regions-toggle" title="Outline every piece of text that can be edited"><input type="checkbox" checked={showRegions} onChange={event => setShowRegions(event.target.checked)}/> Show editable text</label><div className="viewer-controls"><button aria-label="Zoom out" disabled={!document || !!shown || zoom <= 0.1} onClick={() => navigate(page, Math.max(0.1, zoom - 0.1))}>−</button><form className="zoom-form" onSubmit={event => {event.preventDefault();const value=Number(zoomInput);if (!Number.isFinite(value)||value<10||value>400) setError('Enter zoom from 10% to 400%.');else void navigate(page,value/100)}}><input aria-label="Zoom percent" inputMode="numeric" value={zoomInput} onChange={event=>setZoomInput(event.target.value)} disabled={!!shown || !document}/><span>%</span><button className="visually-hidden" type="submit">Apply zoom</button></form><button aria-label="Zoom in" disabled={!document || !!shown || zoom >= 4} onClick={() => navigate(page, Math.min(4, zoom + 0.1))}>+</button><button className="fit-button" aria-label="Fit page width" disabled={!document || !!shown} onClick={fitPage}>Width</button><button className="fit-button" aria-label="Fit whole page" disabled={!document || !!shown} onClick={fitWholePage}>Page</button><span className="toolbar-divider"/><button aria-label="Previous page" disabled={!document || !!shown || page === 0} onClick={() => navigate(page - 1)}>‹</button><form className="page-jump" onSubmit={event=>{event.preventDefault();const value=Number(pageInput);if (!Number.isInteger(value)||value<1||value>(document?.pages.length??0)) setError(`Enter a page from 1 to ${document?.pages.length??0}.`);else void navigate(value-1)}}><input aria-label="Go to page number" inputMode="numeric" value={pageInput} onChange={event=>setPageInput(event.target.value)} disabled={!document || !!shown}/><span>/ {document?.pages.length??0}</span><button className="visually-hidden" type="submit">Go to page</button></form><button aria-label="Next page" disabled={!document || !!shown || page + 1 >= document.pages.length} onClick={() => navigate(page + 1)}>›</button></div><div className="clipboard-tools"><button disabled={!!shown||dirty||!document} onClick={pasteFromClipboard} title="Paste text or an image (Ctrl/Cmd+V)">Paste</button>{selected&&<button disabled={!!shown} onClick={()=>{if(!navigator.clipboard?.writeText){setError('Use Ctrl/Cmd+C to copy the selected text.');return}void navigator.clipboard.writeText(applied?.text??selected.text).catch(()=>setError('Use Ctrl/Cmd+C to copy the selected text.'))}}>Copy text</button>}<button onClick={openTools} disabled={!!shown||dirty}>Page tools</button></div></div>
     <main className="workspace">
-      <PageRail count={document?.pages.length ?? 0} active={page} image={view?.image} thumbs={thumbs} busy={!!busy} onSelect={navigate} onNeedThumb={needThumb}/>
+      <PageRail count={document?.pages.length ?? 0} active={page} image={view?.image} thumbs={thumbs} busy={!!shown} onSelect={navigate} onNeedThumb={needThumb}/>
       <section ref={preview} className="document-area" aria-label="PDF preview" onPointerMove={event=>{const paper=preview.current?.querySelector<HTMLElement>('.page-paper');if(paper&&view&&paper.contains(event.target as Node))lastPointer.current=pointerToPage([event.clientX,event.clientY],paper.getBoundingClientRect(),view.image)}} onDragOver={event=>{if(event.dataTransfer.types.includes('Files')){event.preventDefault();event.dataTransfer.dropEffect=busy||dirty?'none':'copy'}}} onDrop={event=>{event.preventDefault();if(busy||dirty){setError('Apply or cancel your draft before dropping a file.');return}const pdf=Array.from(event.dataTransfer.files).find(file=>file.type==='application/pdf'||/\.pdf$/i.test(file.name));if(pdf){void openFile(pdf);return}const file=Array.from(event.dataTransfer.files).find(file=>file.type==='image/png'||file.type==='image/jpeg');if(!file){setError(document?'Drop a PDF to open it, or a JPG or PNG to place it on the page.':'Drop a PDF to open it.');return}const paper=preview.current?.querySelector<HTMLElement>('.page-paper'),point=paper&&view?pointerToPage([event.clientX,event.clientY],paper.getBoundingClientRect(),view.image):undefined;replacingImage.current=undefined;void importImage(file,true,point)}}>
-        {busy && <div className="job-progress" role="status"><progress aria-label="Document processing"/><span>{busy}</span><button disabled={recovering} onClick={recover}>{recovering ? 'Restoring…' : 'Cancel operation'}</button></div>}
+        {shown && <div className="job-progress" role="status"><progress aria-label="Document processing"/><span>{shown}</span><button disabled={recovering} onClick={recover}>{recovering ? 'Restoring…' : 'Cancel operation'}</button></div>}
         {notice && <div className="notice-banner" role="status">{notice}</div>}
         {features?.signed&&<div className="notice-banner">Digital signature detected. Editing and page transformations may invalidate it. This editor does not verify certificates; save the original separately.</div>}
         {features?.signatureCheckIncomplete&&<div className="notice-banner">Some PDF objects could not be inspected for signatures. Changes may invalidate signatures in this document.</div>}
         {error && <div className="error-banner" role="alert">{error}{checkpoint.current && <button onClick={recover}>Recover workspace</button>}<button onClick={() => setError('')} aria-label="Dismiss error">×</button></div>}
         {view?.text.message && <div className="notice-banner">{view.text.message}</div>}
         {document && view && !view.text.message && !supported && <div className="notice-banner">This page has text, but none meets the supported editing checks. Select an amber region for details.</div>}
-        <div className="page-stage" aria-busy={!!busy}><PagePreview image={view?.image} page={page} zoom={zoom} regions={view?.text.regions} edits={view?.edits} selected={selection} busy={!!busy} showRegions={showRegions} onSelect={selectRegion} tool={spacePan ? 'pan' : tool} objects={view?.objects.filter(object=>object.page===page)} selectedObject={objectSelection} dirty={dirty} strokeWidth={defaults.lineWidth} onSelectObject={selectObject} onPutObject={putObject} onCreateObject={createObject} onInline={beginInline} onEditObjectText={beginAddedInline} inlineDraft={inlineDraft} onInlineChange={updateInline} onInlineApply={applyInline} onInlineCancel={cancelInline}/>{!document && !busy && <div className="empty-actions"><button className="primary" onClick={() => input.current?.click()}>Open PDF</button></div>}</div>
-        <footer className="viewer-footer"><span role="status">{busy || (dirty ? 'Unapplied changes — apply and export before refreshing' : unexported ? 'Unexported changes — export before refreshing or closing' : document && (document.edits.length || document.objects.length) ? 'Actual edited PDF preview' : document ? `${supported} supported text regions on this page` : 'Open a PDF to begin')}</span></footer>
+        <div className="page-stage" aria-busy={!!shown}>{document && pageSizes.length ? <PageStack sizes={pageSizes} zoom={zoom} active={page} activeImage={view?.image} thumbs={thumbs} stamp={stampFor} busy={!!busy} render={renderPage} onNeedThumb={needThumb} onActivate={activatePage}><PagePreview image={view?.image} page={page} zoom={zoom} regions={view?.text.regions} edits={view?.edits} selected={selection} busy={!!shown} showRegions={showRegions} onSelect={selectRegion} tool={spacePan ? 'pan' : tool} objects={view?.objects.filter(object=>object.page===page)} selectedObject={objectSelection} dirty={dirty} strokeWidth={defaults.lineWidth} onSelectObject={selectObject} onPutObject={putObject} onCreateObject={createObject} onInline={beginInline} onEditObjectText={beginAddedInline} inlineDraft={inlineDraft} onInlineChange={updateInline} onInlineApply={applyInline} onInlineCancel={cancelInline}/></PageStack> : <PagePreview image={view?.image} page={page} zoom={zoom} regions={view?.text.regions} edits={view?.edits} selected={selection} busy={!!shown} showRegions={showRegions} onSelect={selectRegion} tool={spacePan ? 'pan' : tool} objects={view?.objects.filter(object=>object.page===page)} selectedObject={objectSelection} dirty={dirty} strokeWidth={defaults.lineWidth} onSelectObject={selectObject} onPutObject={putObject} onCreateObject={createObject} onInline={beginInline} onEditObjectText={beginAddedInline} inlineDraft={inlineDraft} onInlineChange={updateInline} onInlineApply={applyInline} onInlineCancel={cancelInline}/>}{!document && !busy && <div className="empty-actions"><button className="primary" onClick={() => input.current?.click()}>Open PDF</button></div>}</div>
+        <footer className="viewer-footer"><span role="status">{shown || (dirty ? 'Unapplied changes — apply and export before refreshing' : unexported ? 'Unexported changes — export before refreshing or closing' : document && (document.edits.length || document.objects.length) ? 'Actual edited PDF preview' : document ? `${supported} supported text regions on this page` : 'Open a PDF to begin')}</span></footer>
       </section>
-      {tool === 'edit' ? <TextProperties key={document?.source.id ?? 'empty'} region={selected} applied={applied} draft={draftText} busy={!!busy} onApply={applyEdit} onChange={changeText} onInline={()=>beginInline(selected)}/> : <ObjectProperties key={document?.source.id ?? 'empty'} object={selectedObject} revision={view?.revision??0} tool={tool} defaults={defaults} asset={selectedObject?.kind==='image' ? assetFiles.current.get(selectedObject.assetId)?.info : pendingImage} busy={!!busy||!!inlineAdded} onDefaults={value=>{toolDefaults.current[tool]=value;setDefaults(value)}} onApply={putObject} onDelete={deleteObject} onDirty={setDirty} onChooseImage={chooseImage} onPlace={placeAtCenter}/>}
+      {tool === 'edit' ? <TextProperties key={document?.source.id ?? 'empty'} region={selected} applied={applied} draft={draftText} busy={!!shown} onApply={applyEdit} onChange={changeText} onInline={()=>beginInline(selected)}/> : <ObjectProperties key={document?.source.id ?? 'empty'} object={selectedObject} revision={view?.revision??0} tool={tool} defaults={defaults} asset={selectedObject?.kind==='image' ? assetFiles.current.get(selectedObject.assetId)?.info : pendingImage} busy={!!shown||!!inlineAdded} onDefaults={value=>{toolDefaults.current[tool]=value;setDefaults(value)}} onApply={putObject} onDelete={deleteObject} onDirty={setDirty} onChooseImage={chooseImage} onPlace={placeAtCenter}/>}
     </main>
     {utilitiesOpen&&<UtilityPanel initialTab={initialUtility} current={document&&checkpoint.current?{bytes:checkpoint.current.pdf,name:document.source.name,count:document.pages.length}:undefined} onClose={()=>setUtilitiesOpen(false)} onOpen={(bytes,name,hasLocalCopy)=>{setUtilitiesOpen(false);void openFile(new File([bytes],name,{type:'application/pdf'}),hasLocalCopy)}}/>}
 

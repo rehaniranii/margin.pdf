@@ -45,6 +45,11 @@ export class EditorSession {
     const bounds = this.bounds(page)
     return render(this.currentDoc, page, Math.min(1, width / (bounds[2] - bounds[0])), 1)
   }
+  /** A full-size render of the current page for continuous scrolling, without text analysis or progress. */
+  image(page: number, scale: number, dpr: number) {
+    if (!Number.isInteger(page) || page < 0 || page >= this.count) throw new Error('Choose an existing page.')
+    return render(this.currentDoc, page, scale, dpr)
+  }
   view(page: number, scale: number, dpr: number): EditorView {
     this.progress?.(`Rendering page ${page + 1}…`)
     return { image: render(this.currentDoc, page, scale, dpr), text: this.analysis(page).view, ...this.describe(this.history[this.position]) }

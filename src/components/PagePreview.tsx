@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { AddedObject, EditorTool, ObjectBox, Point, RenderedPage, TextEdit, TextRegion } from '../model/document'
 import { regionStyle } from '../geometry/page'
 import { ObjectLayer } from './ObjectLayer'
@@ -6,13 +6,22 @@ import { InlineTextEditor } from './InlineTextEditor'
 import type { InlineDraft } from './InlineTextEditor'
 
 export function usePageImage(page?: RenderedPage) {
-  const [url, setUrl] = useState<string>()
+  // Ready on the first render: a freshly mounted preview (e.g. a page becoming editable) never shows the empty state.
+  const [url, setUrl] = useState<string | undefined>(() => page && URL.createObjectURL(new Blob([page.png], { type: 'image/png' })))
+  const first = useRef(page)
   useEffect(() => {
+    if (page === first.current) return
+    first.current = undefined
     if (!page) { setUrl(undefined); return }
     const next = URL.createObjectURL(new Blob([page.png], { type: 'image/png' }))
-    setUrl(next)
-    return () => URL.revokeObjectURL(next)
+    let current = true, shown = false
+    // Decode before swapping, so the previous page stays on screen until the new one can paint.
+    const image = new Image(); image.src = next
+    image.decode().catch(() => {}).then(() => { if (current) { shown = true; setUrl(next) } })
+    return () => { current = false; if (!shown) URL.revokeObjectURL(next) }
   }, [page])
+  // Release a URL only once it is no longer displayed.
+  useEffect(() => () => { if (url) URL.revokeObjectURL(url) }, [url])
   return url
 }
 

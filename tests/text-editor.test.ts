@@ -90,7 +90,7 @@ test('removal is complete even if the same words occur elsewhere; shared Form/re
 
 test('rejects unsupported characters, unfit text, invalid styles and overlapping source without changing the document', () => {
   const source = fixture()
-  for (const invalid of [{ text: 'Café' }, { text: 'नमस्ते' }, { text: '😀' }, { text: 'two\nlines' }, { text: 'W'.repeat(100) }, { size: 80 }, { size: NaN }, { color: 'red' }, { font: 'Imaginary' }]) {
+  for (const invalid of [{ text: 'Łódź' }, { text: 'नमस्ते' }, { text: '😀' }, { text: 'two\nlines' }, { text: 'W'.repeat(100) }, { size: 80 }, { size: NaN }, { color: 'red' }, { font: 'Imaginary' }]) {
     assert.throws(() => compileTextEdits(source, [{ ...edit, ...invalid } as TextEdit]))
   }
   const overlap = fixture({ extra: 'BT /F 15 Tf 1 0 0 1 100 355 Tm (Overlapping) Tj ET' })
@@ -198,4 +198,17 @@ test('history is transactional, branches after undo, and preview/export agree by
     const doc = openPdf(session.export())
     try { assert.ok(analyzePage(doc, 0).view.regions.some(region => region.text === 'Branch')); assert.ok(analyzePage(doc, 1).view.regions.some(region => region.text === 'Second page')) } finally { doc.destroy() }
   } finally { session.dispose() }
+})
+
+test('accented Latin replacements are written in WinAnsi, extract back exactly, and editing an accented original works', () => {
+  const accented = 'Café “déjà” – €5 ñØ'
+  const doc = openPdf(compileTextEdits(fixture(), [{ ...edit, text: accented, size: 14 }]))
+  try { assert.ok(analyzePage(doc, 0).view.regions.some(region => region.text === accented)) } finally { doc.destroy() }
+  // Every WinAnsi character has a glyph in each of the 12 replacement fonts, so nothing renders as a blank.
+  for (const name of ['Helvetica', 'Helvetica-BoldOblique', 'Times-Roman', 'Times-BoldItalic', 'Courier', 'Courier-Bold']) {
+    const font = new mupdf.Font(name)
+    try { for (const char of 'éüñçøßÀÆ€“”‘’–—…™Œœ') assert.ok(font.encodeCharacter(char) > 0, `${name} ${char}`) } finally { font.destroy() }
+  }
+  const second = openPdf(compileTextEdits(fixture({ content: 'BT /F 20 Tf 1 0 0 1 80 360 Tm (Caf\\351 cr\\350me) Tj ET' }), [{ ...edit, text: 'Thé noir' }]))
+  try { assert.ok(analyzePage(second, 0).view.regions.some(region => region.text === 'Thé noir')) } finally { second.destroy() }
 })

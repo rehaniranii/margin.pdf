@@ -13,6 +13,7 @@ function execute({ command }: Request): Result {
   if (command.type === 'tool-source') return utilities.add(command.id, command.kind, command.bytes)
   if (command.type === 'tool-release') { utilities.release(command.id); return { released: true } }
   if (command.type === 'tool-build') return utilities.build(command.spec)
+  if (command.type === 'tool-thumb') return utilities.thumbnail(command.sourceId, command.page, command.width)
   if (command.type === 'tool-image') return utilities.exportImage(command.sourceId, command.page, command.format, command.dpi)
   if (command.type === 'sample' || command.type === 'open') {
     const source = command.type === 'sample' ? createSample() : new Uint8Array(command.bytes)
@@ -23,7 +24,7 @@ function execute({ command }: Request): Result {
       const view = candidate.view(0, scale, command.dpr ?? 1)
       const features = candidate.features()
       session?.dispose(); session = candidate
-      return { info: { pageCount: candidate.count, bounds, text: view.text.regions.map(region => region.text).join('\n'), features }, source: candidate.source.slice().buffer, view, scale }
+      return { info: { pageCount: candidate.count, bounds, sizes: Array.from({ length: candidate.count }, (_, index) => candidate.bounds(index)), text: view.text.regions.map(region => region.text).join('\n'), features }, source: candidate.source.slice().buffer, view, scale }
     } catch (error) { candidate.dispose(); throw error }
   }
   if (command.type === 'restore') {
@@ -40,6 +41,7 @@ function execute({ command }: Request): Result {
   if (command.type === 'export') return session.export()
   if (command.type === 'view') return session.view(command.page, command.scale, command.dpr)
   if (command.type === 'thumbnail') return session.thumbnail(command.page, command.width)
+  if (command.type === 'page-image') return session.image(command.page, command.scale, command.dpr)
   if (command.type === 'edit') return session.apply(command.edit, command.scale, command.dpr)
   if (command.type === 'object') return session.putObject(command.object, command.scale, command.dpr)
   if (command.type === 'delete-object') return session.deleteObject(command.id, command.page, command.scale, command.dpr)

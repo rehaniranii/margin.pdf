@@ -45,3 +45,22 @@ export function actionFixture(){
   const buffer=doc.saveToBuffer('garbage=4,compress');try{return buffer.asUint8Array().slice()}finally{buffer.destroy()}
  }finally{actionName.destroy();action.destroy();js.destroy();uri.destroy();root.destroy();trailer.destroy();doc.destroy()}
 }
+
+// Text, checkbox, combo box and a two-button radio group on page 1.
+export function formFixture(){
+ const doc=new mupdf.PDFDocument(fixture({pages:2}))
+ try{
+  const ap=(on:string)=>({N:{[on]:doc.addStream('0 g 2 2 8 8 re f',{BBox:[0,0,12,12]}),Off:doc.addStream('',{BBox:[0,0,12,12]})}})
+  const page=doc.findPage(0),fields=doc.newArray(),annots=doc.newArray()
+  const add=(dict:Record<string,unknown>)=>{const widget=doc.addObject({Type:'Annot',Subtype:'Widget',P:page,F:4,...dict});fields.push(widget);annots.push(widget);return widget}
+  add({FT:'Tx',T:doc.newString('name'),Rect:[80,420,300,440],DA:doc.newString('/Helv 12 Tf 0 g'),MaxLen:40})
+  add({FT:'Btn',T:doc.newString('agree'),Rect:[80,390,92,402],AP:ap('Yes'),AS:'Off',V:'Off'})
+  add({FT:'Ch',Ff:131072,T:doc.newString('country'),Rect:[80,350,300,370],DA:doc.newString('/Helv 12 Tf 0 g'),Opt:[doc.newString('India'),doc.newString('Norway')]})
+  const group=doc.addObject({FT:'Btn',Ff:49152,T:doc.newString('size'),V:'Off',Kids:[]})
+  for(const [i,on] of ['S','L'].entries()){const kid=doc.addObject({Type:'Annot',Subtype:'Widget',P:page,F:4,Parent:group,Rect:[80+i*30,320,92+i*30,332],AP:ap(on),AS:'Off'});group.get('Kids').push(kid);annots.push(kid)}
+  fields.push(group)
+  page.put('Annots',annots)
+  const root=doc.getTrailer().get('Root');root.put('AcroForm',{Fields:fields,DA:doc.newString('/Helv 12 Tf 0 g'),DR:{Font:{Helv:doc.addObject({Type:'Font',Subtype:'Type1',BaseFont:'Helvetica'})}}})
+  const b=doc.saveToBuffer('garbage=4,compress');try{return b.asUint8Array().slice()}finally{b.destroy()}
+ }finally{doc.destroy()}
+}

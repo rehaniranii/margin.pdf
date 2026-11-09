@@ -6,7 +6,7 @@ import { pdfFeatures } from '../src/engine/pdf-features'
 import { createSample, ORIGINAL_TEXT } from '../src/engine/sample'
 import { openPdf, inspect, render } from '../src/engine/mupdf-adapter'
 import { parsePages } from '../src/utilities/page-ranges'
-import { fixture } from './fixtures'
+import { actionFixture, fixture, formFixture } from './fixtures'
 import type { PlannedPage, Stamp } from '../src/model/utilities'
 
 const entry=(sourceId:string,page=0,rotation:PlannedPage['rotation']=0):PlannedPage=>({sourceId,page,rotation})
@@ -64,7 +64,7 @@ test('page numbers/watermarks are searchable, correctly positioned and fit-valid
   tools.add('rotated','pdf',fixture({rotation:90,crop:[40,70,360,450],userUnit:2}).buffer)
   const marked=tools.build({kind:'pages',pages:[entry('rotated')],acceptFlattening:true,stamp:{...stamp,kind:'watermark',text:'LOCAL COPY',position:'center',opacity:.2,pages:[0]}})
   using(marked.bytes,doc=>{const page=doc.loadPage(0),text=page.toStructuredText('');try{assert.equal(page.search('LOCAL COPY',{}).length,1);let origin:number[]=[];text.walk({onChar(c,o){if(c==='L'&&!origin.length)origin=o}});assert.ok(origin[0]>0&&origin[0]<760);assert.match(text.asText(),/Nearby content stays/)}finally{text.destroy();page.destroy()}})
-  assert.throws(()=>tools.build({kind:'pages',pages:[entry('sample')],acceptFlattening:true,stamp:{...stamp,pages:[0],text:'\u4e2d'}}),/basic Latin/)
+  assert.throws(()=>tools.build({kind:'pages',pages:[entry('sample')],acceptFlattening:true,stamp:{...stamp,pages:[0],text:'\u4e2d'}}),/Latin text/)
   assert.throws(()=>tools.build({kind:'pages',pages:[entry('sample')],acceptFlattening:true,stamp:{...stamp,pages:[0],text:'long '.repeat(100)}}),/does not fit/)
  }finally{tools.dispose()}
 })
@@ -74,8 +74,9 @@ test('JPG/PNG to PDF respects order, aspect and paper/margin; page export report
  try{
   const fit=tools.build({kind:'images',sources:['jpg','png'],paper:'fit',margin:5})
   assert.equal(fit.pageCount,2);assert.deepEqual(using(fit.bytes,doc=>inspect(doc).bounds),[0,0,30,20])
-  const a4=tools.build({kind:'images',sources:['png'],paper:'a4',margin:24})
-  assert.ok(Math.abs(using(a4.bytes,doc=>inspect(doc).bounds)[2]-595.276)<.001)
+  const a4=tools.build({kind:'images',sources:['png'],paper:'a4',margin:0})
+  // The 20×10 image is landscape: landscape A4, covered edge to edge (every corner is image red, not white).
+  using(a4.bytes,doc=>{assert.ok(Math.abs(inspect(doc).bounds[2]-841.89)<.001);const pix=doc.loadPage(0).toPixmap(mupdf.Matrix.scale(.2,.2),mupdf.ColorSpace.DeviceRGB,false,true);try{const p=pix.getPixels(),w=pix.getWidth(),h=pix.getHeight();for(const [x,y] of [[1,1],[w-2,1],[1,h-2],[w-2,h-2]]){const i=(y*w+x)*3;assert.ok(p[i]>180&&p[i+1]<80,`corner ${x},${y} is filled`)}}finally{pix.destroy()}})
   tools.add('pdf','pdf',fit.bytes.slice(0))
   for(const format of ['png','jpeg'] as const){const exported=tools.exportImage('pdf',1,format,144);assert.equal(exported.width,60);assert.equal(exported.height,40);assert.equal(exported.actualDpi,144);const image=new mupdf.Image(exported.bytes);try{assert.equal(image.getWidth(),60)}finally{image.destroy()}}
   const huge=fixture({crop:[0,0,400,500],userUnit:30});tools.add('huge','pdf',huge.buffer)
@@ -139,5 +140,82 @@ test('protect encrypts with a verified password; unlock needs it and removes enc
   assert.throws(()=>tools.build({kind:'unlock',source:'locked',password:'wrong'}),/not correct/)
   const open=tools.build({kind:'unlock',source:'locked',password:'s3cret=ok'})
   assert.equal(open.pageCount,2);assert.match(using(open.bytes,doc=>inspect(doc).text),new RegExp(ORIGINAL_TEXT.replace('.','\\.')))
+ }finally{tools.dispose()}
+})
+
+test('remove hidden data strips metadata, scripts, actions, attachments, links and bookmarks, and verifies the saved file',()=>{
+ const doc=new mupdf.PDFDocument(actionFixture());doc.setMetaData('info:Author','MARGIN_PRIVATE_AUTHOR');doc.addEmbeddedFile('secret.txt','text/plain',new mupdf.Buffer('MARGIN_PRIVATE_ATTACHMENT'),new Date(),new Date())
+ const bytes=saved(doc);doc.destroy()
+ const tools=new PdfUtilities()
+ try{
+  tools.add('dirty','pdf',bytes.buffer)
+  const result=tools.build({kind:'sanitize',source:'dirty'})
+  const text=new TextDecoder('latin1').decode(using(result.bytes,doc=>{const b=doc.saveToBuffer('decompress');try{return b.asUint8Array().slice()}finally{b.destroy()}}))
+  for(const leak of ['MARGIN_PRIVATE_AUTHOR','MARGIN_PRIVATE_ATTACHMENT','linked.invalid','JavaScript','OpenAction'])assert.ok(!text.includes(leak),leak)
+  assert.match(using(result.bytes,doc=>inspect(doc).text),/MARGIN_PRIVATE_CANARY extracted content/)
+  using(result.bytes,doc=>{const f=pdfFeatures(doc);assert.equal(f.links+f.annotations+f.widgets,0);assert.equal(doc.getMetaData('info:Author'),undefined)})
+ }finally{tools.dispose()}
+})
+
+test('blank and duplicate pages; crop trims the on-screen side for every rotation',()=>{
+ const tools=new PdfUtilities()
+ try{
+  tools.add('sample','pdf',createSample().buffer)
+  const result=tools.build({kind:'pages',pages:[entry('sample'),{...entry('sample'),blank:true},entry('sample')],acceptFlattening:true})
+  assert.equal(result.pageCount,3);using(result.bytes,doc=>{assert.equal(inspect(doc,1).text.trim(),'');assert.deepEqual(inspect(doc,1).bounds,inspect(doc,0).bounds);assert.equal(inspect(doc,2).text,inspect(doc,0).text)})
+  for(const rotation of [0,90,180,270] as const){
+   const id=`r${rotation}`;tools.add(id,'pdf',fixture({rotation,userUnit:2}).buffer)
+   const firstChar=(bytes:ArrayBuffer)=>using(bytes,doc=>{const page=doc.loadPage(0),text=page.toStructuredText('');try{let o:number[]=[];text.walk({onChar(c,origin){if(c==='O'&&!o.length)o=origin}});const b=page.getBounds();return {x:o[0]-b[0],y:o[1]-b[1],w:b[2]-b[0],h:b[3]-b[1]}}finally{text.destroy();page.destroy()}})
+   const plain=firstChar(tools.build({kind:'pages',pages:[entry(id)],acceptFlattening:true}).bytes)
+   const top=firstChar(tools.build({kind:'pages',pages:[entry(id)],acceptFlattening:true,crop:{top:40,right:0,bottom:0,left:30,pages:[0]}}).bytes)
+   assert.ok(Math.abs(plain.h-top.h-40)<.01&&Math.abs(plain.w-top.w-30)<.01,`size ${rotation}`)
+   assert.ok(Math.abs(plain.y-top.y-40)<.01&&Math.abs(plain.x-top.x-30)<.01,`side ${rotation}`)
+  }
+  assert.throws(()=>tools.build({kind:'pages',pages:[entry('sample')],acceptFlattening:true,crop:{top:5000,right:0,bottom:0,left:0,pages:[0]}}),/half an inch/)
+ }finally{tools.dispose()}
+})
+
+test('fill and sign lists fields, fills text/checkbox/choice/radio, verifies, places typed or image signatures, and can flatten',()=>{
+ const tools=new PdfUtilities()
+ try{
+  const info=tools.add('form','pdf',formFixture().buffer)
+  assert.deepEqual(info.fields!.map(f=>[f.name,f.type,f.options.join('/')]),[['name','text',''],['agree','checkbox','Yes'],['country','choice','India/Norway'],['size','radio','S/L']])
+  const values={name:'Asha Rao',agree:'Yes',country:'Norway',size:'L'}
+  const filled=tools.build({kind:'fill',source:'form',values,flatten:false,signature:{page:1,box:[.1,.7,.5,.1],text:'Asha Rao'}})
+  tools.add('filled','pdf',filled.bytes.slice(0))
+  const back=Object.fromEntries(tools.add('again','pdf',filled.bytes.slice(0)).fields!.map(f=>[f.name,f.value]))
+  assert.deepEqual(back,values)
+  using(filled.bytes,doc=>{const text=inspect(doc,1).text;assert.match(text,/Asha Rao/);const page=doc.loadPage(1);try{const hit=page.search('Asha Rao',{})[0][0];const b=page.getBounds();assert.ok(hit[1]>b[1]+.65*(b[3]-b[1])&&hit[7]<b[1]+.82*(b[3]-b[1]),'signature lands inside its box')}finally{page.destroy()}})
+  const untick=tools.build({kind:'fill',source:'filled',values:{agree:'Off'},flatten:false})
+  assert.equal(tools.add('u','pdf',untick.bytes.slice(0)).fields!.find(f=>f.name==='agree')!.value,'Off')
+  tools.add('ink','image',imageBytes('png'))
+  const flat=tools.build({kind:'fill',source:'form',values:{name:'Flat Value'},flatten:true,signature:{page:0,box:[.5,.05,.4,.1],image:'ink'}})
+  using(flat.bytes,doc=>{assert.equal(pdfFeatures(doc).widgets,0);assert.match(inspect(doc).text,/Flat Value/)})
+  assert.throws(()=>tools.build({kind:'fill',source:'form',values:{country:'Mars'},flatten:false}),/not an option/)
+  assert.throws(()=>tools.build({kind:'fill',source:'form',values:{nope:'x'},flatten:false}),/no field/)
+  assert.throws(()=>tools.build({kind:'fill',source:'form',values:{},flatten:false,signature:{page:0,box:[.8,.1,.5,.1],text:'X'}}),/inside the page/)
+ }finally{tools.dispose()}
+})
+
+test('watermarks and typed signatures accept accented Latin and stay searchable',()=>{
+ const tools=new PdfUtilities();tools.add('sample','pdf',createSample().buffer)
+ try{
+  const marked=tools.build({kind:'pages',pages:[entry('sample')],acceptFlattening:true,stamp:{kind:'watermark',text:'BROUILLON – Café',size:30,color:'#667085',opacity:.3,position:'center',start:1,pages:[0]}})
+  assert.match(using(marked.bytes,doc=>inspect(doc).text),/BROUILLON – Café/)
+  const signed=tools.build({kind:'fill',source:'sample',values:{},flatten:false,signature:{page:0,box:[.1,.8,.5,.1],text:'Zoë Müller'}})
+  assert.match(using(signed.bytes,doc=>inspect(doc).text),/Zoë Müller/)
+  assert.throws(()=>tools.build({kind:'fill',source:'sample',values:{},flatten:false,signature:{page:0,box:[.1,.8,.5,.1],text:'Łukasz'}}),/accents/)
+ }finally{tools.dispose()}
+})
+
+test('typed signatures use the chosen standard font and size, and reject text that does not fit its box',()=>{
+ const tools=new PdfUtilities();tools.add('sample','pdf',createSample().buffer)
+ try{
+  const signed=tools.build({kind:'fill',source:'sample',values:{},flatten:false,signature:{page:0,box:[.1,.7,.6,.2],text:'Zoë Rao',font:'Courier-Bold',size:30}})
+  using(signed.bytes,doc=>{const page=doc.loadPage(0),text=page.toStructuredText('');try{let found:{font:string,size:number}|undefined;text.walk({onChar(c,_o,font,size){if(c==='Z'&&!found)found={font:font.getName(),size}}});assert.match(found!.font,/Courier.*Bold|Bold.*Courier|NimbusMonoPS-Bold/i);assert.ok(Math.abs(found!.size-30)<.01)}finally{text.destroy();page.destroy()}})
+  assert.throws(()=>tools.build({kind:'fill',source:'sample',values:{},flatten:false,signature:{page:0,box:[.1,.7,.2,.05],text:'A much longer signature',size:40}}),/does not fit/)
+  assert.throws(()=>tools.build({kind:'fill',source:'sample',values:{},flatten:false,signature:{page:0,box:[.1,.7,.6,.2],text:'Ok',font:'Comic-Sans' as never}}),/standard font/)
+  const tall=tools.build({kind:'fill',source:'sample',values:{},flatten:false,signature:{page:0,box:[.1,.3,.15,.5],text:'Ok'}})
+  assert.match(using(tall.bytes,doc=>inspect(doc).text),/Ok/)
  }finally{tools.dispose()}
 })

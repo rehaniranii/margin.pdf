@@ -2,7 +2,7 @@ import * as mupdf from 'mupdf'
 import type { AddedObject, Rect } from '../model/document'
 import { validBox } from '../geometry/objects'
 import { contains } from '../geometry/affine'
-import { basicLatin } from './text-analysis'
+import { pdfLiteral as literal, supportedText, unsupportedMessage } from '../model/text-encoding'
 import { REPLACEMENT_FONTS } from './text-edit'
 import { appendPageForm } from './page-form'
 import { openPdf } from './mupdf-adapter'
@@ -10,7 +10,6 @@ import type { ImageAssets } from './image-assets'
 
 const num = (n: number) => Number(n.toFixed(6)).toString()
 const rgb = (color: string) => [1,3,5].map(index => num(parseInt(color.slice(index, index + 2), 16) / 255)).join(' ')
-const literal = (value: string) => `(${value.replace(/[\\()]/g, '\\$&')})`
 
 export function validateObject(object: AddedObject, bounds: Rect) {
   if (!object.id || !Number.isInteger(object.page) || object.page < 0 || !validBox(object.box, bounds)) throw new Error('Keep the object inside the page with a width and height of at least 2 points.')
@@ -18,7 +17,7 @@ export function validateObject(object: AddedObject, bounds: Rect) {
   if ('lineWidth' in object && (!Number.isFinite(object.lineWidth) || object.lineWidth < 0.5 || object.lineWidth > 24 || object.lineWidth > Math.min(object.box.width, object.box.height))) throw new Error('Choose a line width from 0.5 to 24 points that fits inside the object.')
   if (object.kind === 'highlight' && (!Number.isFinite(object.opacity) || object.opacity < 0.05 || object.opacity > 0.75)) throw new Error('Highlight opacity must be between 5% and 75%.')
   if (object.kind === 'text') {
-    if (!object.text.trim() || !object.text.split('\n').every(basicLatin)) throw new Error('Added text supports basic Latin letters, numbers, punctuation, and line breaks. Enter visible text; no unsupported characters are dropped.')
+    if (!object.text.trim() || !object.text.split('\n').every(supportedText)) throw new Error(`Enter visible text. ${unsupportedMessage} No characters are dropped.`)
     if (!REPLACEMENT_FONTS.includes(object.font) || !Number.isFinite(object.size) || object.size < 4 || object.size > 144) throw new Error('Choose an available font and a size from 4 to 144 points.')
     const font = new mupdf.Font(object.font), text = new mupdf.Text()
     try {

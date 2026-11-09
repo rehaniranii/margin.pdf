@@ -162,3 +162,12 @@ test('pointer coordinates, aspect-locked corner resize, bounds and ink normaliza
   const drawing=inkFromPoints([[30,40],[70,80]],2,page)
   drawing.points.forEach(([x,y],i)=>{const actual=[drawing.box.x+1+x*(drawing.box.width-2),drawing.box.y+1+y*(drawing.box.height-2)];assert.deepEqual(actual,i===0?[30,40]:[70,80])})
 })
+
+test('added text accepts accented Latin and line breaks',()=>{
+  const session=new EditorSession(fixture())
+  try{
+    session.putObject({id:'note',page:0,kind:'text',font:'Times-Roman',size:16,color:'#2859cf',text:'Señor Ødegaard\nprix : 12 €',box:{x:20,y:200,width:200,height:65}},1,1)
+    const doc=openPdf(session.export());try{const text=analyzePage(doc,0).view.regions.map(region=>region.text).join('\n');assert.match(text,/Señor Ødegaard/);assert.match(text,/prix : 12 €/)}finally{doc.destroy()}
+    assert.throws(()=>session.putObject({id:'bad',page:0,kind:'text',font:'Helvetica',size:16,color:'#000000',text:'日本',box:{x:20,y:300,width:100,height:30}},1,1))
+  }finally{session.dispose()}
+})

@@ -8,10 +8,10 @@ export type Graphic = { bounds: Rect; order: number; background: boolean; reason
 export type AnalyzedRegion = TextRegion & { glyphIndices: number[]; removal?: Rect }
 export type Analysis = { view: PageText; regions: AnalyzedRegion[]; glyphs: Glyph[]; pdfToPage: Matrix; graphics: Graphic[] }
 const near = (a: number, b: number) => Math.abs(a - b) < 0.02
-export const basicLatin = (value: string) => /^[\x20-\x7e]*$/.test(value)
+import { supportedText, winAnsiCode } from '../model/text-encoding'
 // Typographic ligatures (ff, fi, fl, ffi, ffl, long-s t, st) are one painted glyph; edit them as their letters.
 const ligatures: Record<number, string> = { 0xfb00: 'ff', 0xfb01: 'fi', 0xfb02: 'fl', 0xfb03: 'ffi', 0xfb04: 'ffl', 0xfb05: 'st', 0xfb06: 'st' }
-const editableCode = (unicode: number) => unicode >= 32 && unicode <= 126 || unicode in ligatures
+const editableCode = (unicode: number) => winAnsiCode(String.fromCodePoint(unicode)) !== undefined || unicode in ligatures
 export const rgbHex = (color: number[]) => '#' + (color.length === 1 ? [color[0], color[0], color[0]] : color.slice(0, 3)).map(n => Math.round(Math.max(0, Math.min(1, n)) * 255).toString(16).padStart(2, '0')).join('')
 // Anything painted before the text is behind it. Removal leaves images and line art
 // untouched and the replacement is drawn on top, so it stays behind the new text too.
@@ -164,7 +164,7 @@ export function analyzePage(doc: mupdf.PDFDocument, index: number): Analysis {
             if (char === ' ' && !matches.length) { if (current.text) current.text += char; return }
             if (!current.text) { current.origin = origin; current.fontName = name; current.fontSize = size; current.color = rgbHex(color) }
             else if (name !== current.fontName || !near(size, current.fontSize) || rgbHex(color) !== current.color) current.unsupported ??= 'This line mixes fonts, sizes, or colors. Mixed-style lines are view-only.'
-            if (bidi !== 0 || !(basicLatin(char) || code in ligatures)) current.unsupported ??= 'Only left-to-right basic Latin text is supported in this release.'
+            if (bidi !== 0 || !(supportedText(char) || code in ligatures)) current.unsupported ??= 'Only left-to-right Latin text (including accents like é ü ñ) is supported in this release.'
             let area = quadBounds(quad)
             if (matches.length !== 1) current.unsupported ??= 'These characters cannot be matched to unique painted glyphs. The line may overlap other text or use a special encoding.'
             else {

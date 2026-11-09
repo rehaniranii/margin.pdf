@@ -1,6 +1,7 @@
 import type { TextEdit, TextRegion } from '../model/document'
 import { FontSelect } from './FontSelect'
 import { textDraft } from '../model/text-draft'
+import { supportedText, unsupportedMessage } from '../model/text-encoding'
 
 type Props = { region?: TextRegion; applied?: TextEdit; draft?: TextEdit; busy: boolean; onApply: (edit: TextEdit) => void; onChange: (edit: TextEdit) => void; onInline: () => void }
 
@@ -8,7 +9,7 @@ export function TextProperties({ region, applied, draft: supplied, busy, onApply
   const baseline = region ? textDraft(region, applied) : undefined
   const draft = supplied ?? baseline ?? {type:'replace-text' as const,page:0,regionId:'',text:'',font:'Helvetica' as const,size:12,color:'#000000'}
   const dirty = JSON.stringify(draft) !== JSON.stringify(baseline)
-  const unsupportedCharacters = !/^[\x20-\x7e]*$/.test(draft.text)
+  const unsupportedCharacters = !supportedText(draft.text)
   const update = (change: Partial<TextEdit>) => onChange({ ...draft, ...change })
   function discard() { if(baseline)onChange(baseline) }
   // Visible labels are short; aria-labels keep the precise names (used by screen readers and release checks).
@@ -21,7 +22,7 @@ export function TextProperties({ region, applied, draft: supplied, busy, onApply
     : <form className="text-form" onSubmit={event => { event.preventDefault(); onApply(draft) }}>
       <label htmlFor="replacement">{(region.lines ?? 1) > 1 ? `Paragraph · ${region.lines} lines` : 'Text'}</label>
       <textarea id="replacement" aria-label="Replacement text" rows={(region.lines ?? 1) > 1 ? 6 : 2} value={draft.text} onChange={event => update({ text: event.target.value })} disabled={busy} spellCheck={false} aria-describedby="text-support fit-policy"/>
-      {unsupportedCharacters && <p className="inline-error" role="status">This replacement contains unsupported characters. Use basic Latin letters, numbers, and punctuation.</p>}
+      {unsupportedCharacters && <p className="inline-error" role="status">This replacement contains unsupported characters. {unsupportedMessage}</p>}
       <div className="style-row">
         <div className="field grow"><label htmlFor="font">Font</label><FontSelect id="font" label="Replacement font" value={draft.font} disabled={busy} onChange={font => update({ font })}/></div>
         <div className="field size"><label htmlFor="font-size">Size</label><input id="font-size" aria-label="Size (pt)" type="number" min="4" max="144" step="0.5" value={Number.isFinite(draft.size) ? draft.size : ''} disabled={busy} onChange={event => update({ size: event.target.valueAsNumber })}/></div>
@@ -39,7 +40,7 @@ export function TextProperties({ region, applied, draft: supplied, busy, onApply
       </details>
     </form>}
     {!region && <details className="fine-details"><summary>What can be edited?</summary>
-      <p>Simple horizontal text in basic Latin letters, on normal, rotated or cropped pages. Scanned pages, complex scripts, unusual layouts and overlapping content may be view-only; amber outlines explain why.</p>
+      <p>Simple horizontal text in Latin letters (accents included), on normal, rotated or cropped pages. Scanned pages, complex scripts, unusual layouts and overlapping content may be view-only; amber outlines explain why.</p>
       <p>Replacing text is not full document sanitization, and any change can invalidate a digital signature.</p>
     </details>}
   </aside>

@@ -2,7 +2,8 @@ import * as mupdf from 'mupdf'
 import type { Rect, ReplacementFont, TextEdit } from '../model/document'
 import { contains, intersects, union } from '../geometry/affine'
 import { openPdf } from './mupdf-adapter'
-import { analyzePage, assertGlyphs, basicLatin, paintedGlyphs, safeBackdrop } from './text-analysis'
+import { analyzePage, assertGlyphs, paintedGlyphs, safeBackdrop } from './text-analysis'
+import { pdfLiteral as literal, supportedText, unsupportedMessage } from '../model/text-encoding'
 import type { Analysis, AnalyzedRegion, Glyph } from './text-analysis'
 
 export const REPLACEMENT_FONTS: readonly ReplacementFont[] = ['Helvetica', 'Helvetica-Bold', 'Helvetica-Oblique', 'Helvetica-BoldOblique', 'Times-Roman', 'Times-Bold', 'Times-Italic', 'Times-BoldItalic', 'Courier', 'Courier-Bold', 'Courier-Oblique', 'Courier-BoldOblique']
@@ -22,7 +23,6 @@ export function wrap(value: string, width: number, measure: (text: string) => nu
   return lines
 }
 const number = (value: number) => Number(value.toFixed(6)).toString()
-const literal = (value: string) => `(${value.replace(/[\\()]/g, '\\$&')})`
 
 export function prepareEdit(analysis: Analysis, edit: TextEdit, fontKey = 'F'): PreparedEdit {
   const region = analysis.regions.find(line => line.id === edit.regionId)
@@ -31,7 +31,7 @@ export function prepareEdit(analysis: Analysis, edit: TextEdit, fontKey = 'F'): 
   if (!REPLACEMENT_FONTS.includes(edit.font)) throw new Error('Choose one of the available replacement fonts.')
   if (!Number.isFinite(edit.size) || edit.size < 4 || edit.size > 144) throw new Error('Enter a font size from 4 to 144 points.')
   if (!/^#[\da-f]{6}$/i.test(edit.color)) throw new Error('Choose a valid text color.')
-  if (!basicLatin(edit.text)) throw new Error('Replacement text supports basic Latin letters, numbers, and punctuation only (U+0020–U+007E). Accents, emoji, complex scripts, and line breaks are not supported. No changes were applied.')
+  if (!supportedText(edit.text)) throw new Error(`${unsupportedMessage} Line breaks are not supported. No changes were applied.`)
   if (edit.text && !edit.text.trim()) throw new Error('Use an empty value to remove the line, or enter visible text.')
   const font = new mupdf.Font(edit.font)
   const text = new mupdf.Text()
