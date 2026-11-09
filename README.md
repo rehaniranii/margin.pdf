@@ -363,6 +363,23 @@ There is no opt-in local recovery implementation yet and no automatic document s
 See [Phase 5 verification](docs/PHASE5-VERIFICATION.md) for the actual disconnected
 production, cache repair, version update, storage and request checks performed.
 
+## Installing as an app
+
+The site is an installable web app (`public/manifest.webmanifest`, icons in `public/icons/`,
+`manifest-src 'self'` in the CSP). Chrome/Edge show an install button in the address bar,
+Android offers "Install app", and iOS/iPadOS use Share → Add to Home Screen. It opens in
+its own window and works offline like the site.
+
+- **Open with:** on desktop Chrome/Edge, the installed app registers for PDF files. A file
+  opened this way reaches the editor through the in-memory handoff; nothing is stored.
+  Only the first file is used when several are opened at once.
+- **Updates:** when a new version has downloaded, the status bar shows **Update now**.
+  It switches only when no operation is running, nothing is unsaved, and no other
+  margin.pdf tab is open (the service worker checks the tab count itself); otherwise it
+  explains what to do. The running version is shown under Privacy & offline.
+- **Not included:** the Android share target, which would need the service worker to
+  accept uploaded PDFs and hold them, against the "documents are never cached" design.
+
 ## Licensing status
 
 **No license has been assigned to this project. Distribution is pending an owner

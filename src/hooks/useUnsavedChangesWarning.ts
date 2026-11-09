@@ -1,5 +1,9 @@
 import { useEffect } from 'react'
 
+// How many unsaved-work warnings are active; an app update must not reload over them.
+let unsaved = 0
+export const unsavedCount = () => unsaved
+
 export function registerUnloadWarning(target: EventTarget): () => void {
   const warn = (event: Event) => {
     event.preventDefault()
@@ -7,8 +11,8 @@ export function registerUnloadWarning(target: EventTarget): () => void {
     const unload = event as BeforeUnloadEvent
     unload.returnValue = 'Unsaved changes'
   }
-  target.addEventListener('beforeunload', warn)
-  return () => target.removeEventListener('beforeunload', warn)
+  target.addEventListener('beforeunload', warn); unsaved++
+  return () => { target.removeEventListener('beforeunload', warn); unsaved-- }
 }
 
 // Memory-only protection: no document bytes or edit drafts are persisted.

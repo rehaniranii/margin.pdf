@@ -9,6 +9,7 @@ export const CONTENT_POLICY = [
   "img-src 'self' blob:",
   "style-src 'self' 'unsafe-inline'",
   "font-src 'self'",
+  "manifest-src 'self'",
   "object-src 'none'",
   "frame-src 'none'",
   "base-uri 'none'",

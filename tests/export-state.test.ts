@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { AddedObject, WorkingDocument } from '../src/model/document'
 import { exportCheckpoint, needsExport } from '../src/model/export-state'
-import { registerUnloadWarning } from '../src/hooks/useUnsavedChangesWarning'
+import { registerUnloadWarning, unsavedCount } from '../src/hooks/useUnsavedChangesWarning'
 
 function working(id='source'):WorkingDocument {
  return {source:{id,name:'local.pdf',kind:'local',bytes:new ArrayBuffer(0)},pages:[{sourceId:id,sourcePage:0,rotation:0}],edits:[],objects:[],revision:0}
@@ -39,4 +39,9 @@ test('the unload listener cancels unloading and its cleanup restores normal beha
  remove()
  const afterExport=new Event('beforeunload',{cancelable:true})
  target.dispatchEvent(afterExport);assert.equal(afterExport.defaultPrevented,false)
+})
+
+test('unsaved-work warnings are counted so an app update never reloads over them',()=>{
+ const before=unsavedCount(),a=registerUnloadWarning(new EventTarget()),b=registerUnloadWarning(new EventTarget())
+ assert.equal(unsavedCount(),before+2);a();assert.equal(unsavedCount(),before+1);b();assert.equal(unsavedCount(),before)
 })

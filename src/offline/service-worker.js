@@ -50,7 +50,8 @@ function populate() {
 }
 self.addEventListener('install', event => {
   event.waitUntil(populate().catch(async error => { await caches.delete(CACHE); throw error; }));
-  // No skipWaiting: updates cannot replace a worker used by any existing tab/job.
+  // No automatic skipWaiting: an update only replaces the running worker when the sole open tab asks
+  // (ACTIVATE below), after it has checked that no job is running and nothing is unsaved.
 });
 self.addEventListener('activate', event => {
   event.waitUntil((async () => {
@@ -81,6 +82,17 @@ self.addEventListener('message', event => {
   const port = event.ports[0];
   const client = event.source;
   if (!port || !client || new URL(client.url).origin !== scopeURL.origin) return;
+  // Sent only to the waiting worker; skipWaiting on an already active worker does nothing.
+  if (event.data?.type === 'ACTIVATE') {
+    event.waitUntil((async () => {
+      // Another tab may be mid-job or still need this build's files; only the last tab may update.
+      const windows = await self.clients.matchAll({type:'window',includeUncontrolled:true});
+      if (windows.length > 1) { port.postMessage({ok:false,error:'Close the other margin.pdf tabs or windows first, then try again.'}); return; }
+      port.postMessage({ok:true});
+      await self.skipWaiting();
+    })());
+    return;
+  }
   if (event.data?.type !== 'STATUS' && event.data?.type !== 'REPAIR') return;
   event.waitUntil((async () => {
     try {

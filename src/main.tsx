@@ -8,6 +8,7 @@ import './tokens.css'
 import './styles.css'
 import { startOfflineDelivery } from './offline/client'
 import { OfflineStatus } from './components/OfflineStatus'
+import { handOff } from './handoff'
 
 // shortcut: hash routing (#/edit, #/<tool>, #/#section); switch to a router if routes grow past a flat list.
 function Root() {
@@ -28,4 +29,15 @@ function Root() {
 }
 
 startOfflineDelivery()
+
+// Installed app: a PDF opened with "Open with → margin.pdf" arrives here (File Handling API) and
+// goes to the editor through the same in-memory handoff as the tool pages. Nothing is stored.
+type LaunchQueue = { setConsumer(consumer: (params: { files: readonly FileSystemFileHandle[] }) => void): void }
+const launchQueue = (window as Window & { launchQueue?: LaunchQueue }).launchQueue
+launchQueue?.setConsumer(async ({ files }) => {
+  const file = files[0] && await files[0].getFile()
+  if (!file) return
+  handOff(file, true)
+  location.hash = '#/edit'
+})
 createRoot(document.getElementById('root')!).render(<Root/>)
