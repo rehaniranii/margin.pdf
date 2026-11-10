@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@tesseract.js-data/eng": "1.0.0",
+    "@vercel/analytics": "2.0.1",
     "mupdf": "1.28.1",
     "react": "19.3.1",
     "react-dom": "19.3.1",

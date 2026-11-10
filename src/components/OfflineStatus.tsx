@@ -17,7 +17,8 @@ export function OfflineStatus({install=false}:{install?:boolean}){
     {install&&<span className="strip-install"><InstallButton className="strip-install-button"/></span>}
     <details><summary>Privacy &amp; offline</summary><div className="delivery-details">
       <strong>Your documents stay on this device</strong>
-      <p>Files, names, passwords, thumbnails and extracted text are never uploaded. No account, advertising, analytics or remote error reporting.</p>
+      <p>Files, names, passwords, thumbnails and extracted text are never uploaded. No account, advertising or remote error reporting.</p>
+      <p>Production builds on Vercel use Web Analytics for basic visit statistics. Only fixed page names are tracked; document data, URL parameters and editing actions are not sent. Local builds and offline use do not send analytics.</p>
       <p>The offline cache stores application code and its PDF engine. It does not store your working PDFs. Export before refreshing or closing; a refresh or crash can still discard this memory-only session.</p>
       <p>On the first visit, all offline files are verified before setup is ready. Export any work, then reload once to enable offline use. When a new version is ready, Update now switches to it once nothing is unsaved and no other margin.pdf tab is open; otherwise it waits until all app tabs close. The app never reloads itself during a document operation.</p>
       <p>Browsers can evict offline files or deny storage. Readiness is rechecked when you return to the tab or change connectivity. Reconnect and retry if files are missing. Real device memory limits still apply.</p>

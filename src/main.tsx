@@ -10,6 +10,7 @@ import { startOfflineDelivery } from './offline/client'
 import './install' // listen for the browser's install prompt before anything renders
 import { OfflineStatus } from './components/OfflineStatus'
 import { handOff } from './handoff'
+import { VercelAnalytics } from './analytics/VercelAnalytics'
 
 // shortcut: hash routing (#/edit, #/<tool>, #/#section); switch to a router if routes grow past a flat list.
 function Root() {
@@ -26,7 +27,7 @@ function Root() {
     else if (hash.startsWith('#/')) scrollTo(0, 0)
   }, [hash])
   const tool = findTool(route)
-  return <><OfflineStatus install={route === 'edit'}/>{route === 'edit' ? <App/> : tool ? <ToolPage tool={tool}/> : <Home/>}</>
+  return <><OfflineStatus install={route === 'edit'}/>{route === 'edit' ? <App/> : tool ? <ToolPage tool={tool}/> : <Home/>}<VercelAnalytics page={route==='edit'?'/edit':tool?`/${tool.id}`:'/'}/></>
 }
 
 startOfflineDelivery()

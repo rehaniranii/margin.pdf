@@ -24,7 +24,7 @@ export async function assetManifest(directory: string): Promise<OfflineAsset[]> 
   return assets.sort((a,b)=>a.url.localeCompare(b.url))
 }
 
-export function offlineBuild(buildId: string): Plugin {
+export function offlineBuild(buildId: string,analyticsEnabled=false): Plugin {
   let config: ResolvedConfig
   return {
     name:'margin-pdf-offline',apply:'build',
@@ -36,7 +36,7 @@ export function offlineBuild(buildId: string): Plugin {
       if(assets.some(asset=>/\.(gz|br)$/.test(asset.url)))throw new Error('Precompressed .gz/.br assets are decoded in transit and would fail offline verification; emit them as .bin.')
       if(!assets.some(asset=>asset.url.endsWith('.wasm'))||!assets.some(asset=>/\/pdf\.worker-.*\.js$/.test(asset.url)))throw new Error('The offline build is missing its PDF worker or WASM engine.')
       const template=await readFile(resolve(config.root,'src/offline/service-worker.js'),'utf8')
-      const manifest={buildId,version:digest(JSON.stringify(assets)+template+buildId).slice(0,24),assets}
+      const manifest={buildId,version:digest(JSON.stringify(assets)+template+buildId+analyticsEnabled).slice(0,24),assets,analyticsEnabled}
       await writeFile(join(out,'offline-manifest.json'),JSON.stringify(manifest,null,2)+'\n')
       await writeFile(join(out,'sw.js'),`'use strict';\nconst MANIFEST=${JSON.stringify(manifest)};\nconst SECURITY_HEADERS=${JSON.stringify(SECURITY_HEADERS)};\n${template}`)
       const headerLines=Object.entries(SECURITY_HEADERS).map(([key,value])=>`  ${key}: ${value}`).join('\n')

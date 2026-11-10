@@ -13,7 +13,7 @@ const source=await readFile(new URL('../src/offline/service-worker.js',import.me
 const hash=(value:string)=>createHash('sha256').update(value).digest('hex')
 const origin='https://margin.example'
 const files:Record<string,string>={'/index.html':'<html>margin.pdf app</html>','/assets/pdf.worker-a.js':'worker code','/assets/engine.wasm':'engine bytes'}
-function harness(version='a',shared=new Map<string,Map<string,Response>>(),failure?:string){
+function harness(version='a',shared=new Map<string,Map<string,Response>>(),failure?:string,analyticsEnabled=false){
  const assets=Object.entries(files).map(([url,bytes])=>({url,bytes:Buffer.byteLength(bytes),sha256:hash(bytes)}))
  const listeners=new Map<string,(event:any)=>void>(),network:{url:string;method:string}[]=[],events={claim:0,skip:0}
  const normalize=(request:string|Request)=>new URL(typeof request==='string'?request:request.url,origin).href
@@ -29,9 +29,20 @@ function harness(version='a',shared=new Map<string,Map<string,Response>>(),failu
   }},
  }
  const self={registration:{scope:origin+'/'},clients:{claim(){events.claim++}},skipWaiting(){events.skip++},addEventListener(type:string,handler:(event:any)=>void){listeners.set(type,handler)}}
- vm.runInNewContext(`const MANIFEST=${JSON.stringify({buildId:version,version,assets})};const SECURITY_HEADERS={};${source}`,{self,caches:storage,URL,Request,Response,crypto:webcrypto,Uint8Array,Map,Array,Error,fetch:async(request:Request)=>{network.push({url:request.url,method:request.method});const url=new URL(request.url);return new Response(url.pathname===failure?'corrupt asset':files[url.pathname],{status:files[url.pathname]?200:404})}})
- return {shared,network,events,storage,async lifecycle(type:string){let work:Promise<unknown>|undefined;listeners.get(type)!({waitUntil(p:Promise<unknown>){work=p}});await work},async request(path:string,options:{method?:string;mode?:string}={}){let response:Promise<Response>|undefined;listeners.get('fetch')!({request:{url:new URL(path,origin).href,method:options.method??'GET',mode:options.mode??'cors'},respondWith(p:Promise<Response>){response=p}});return response!},async status(type='STATUS'){let work:Promise<unknown>|undefined,result:any;listeners.get('message')!({data:{type},source:{url:origin+'/'},ports:[{postMessage(value:unknown){result=value}}],waitUntil(p:Promise<unknown>){work=p}});await work;return result}}
+ vm.runInNewContext(`const MANIFEST=${JSON.stringify({buildId:version,version,assets,analyticsEnabled})};const SECURITY_HEADERS={};${source}`,{self,caches:storage,URL,Request,Response,crypto:webcrypto,Uint8Array,Map,Array,Error,fetch:async(request:Request)=>{network.push({url:request.url,method:request.method});const url=new URL(request.url);if(url.pathname.startsWith('/_vercel/insights/')){if(failure===url.pathname)throw new Error('offline');assert.equal(request.credentials,'omit');assert.equal(request.referrerPolicy,'no-referrer');assert.equal(request.redirect,'error');assert.equal(request.cache,'no-store');return new Response(null,{status:204})}return new Response(url.pathname===failure?'corrupt asset':files[url.pathname],{status:files[url.pathname]?200:404})}})
+ return {shared,network,events,storage,async lifecycle(type:string){let work:Promise<unknown>|undefined;listeners.get(type)!({waitUntil(p:Promise<unknown>){work=p}});await work},async request(path:string,options:{method?:string;mode?:string}={}){let response:Promise<Response>|undefined;const request=new Request(new URL(path,origin),{method:options.method??'GET'});listeners.get('fetch')!({request:options.mode?{url:request.url,method:request.method,mode:options.mode}:request,respondWith(p:Promise<Response>){response=p}});return response!},async status(type='STATUS'){let work:Promise<unknown>|undefined,result:any;listeners.get('message')!({data:{type},source:{url:origin+'/'},ports:[{postMessage(value:unknown){result=value}}],waitUntil(p:Promise<unknown>){work=p}});await work;return result}}
 }
+
+test('Vercel production analytics has exact uncached endpoints; other uploads and document-linked requests stay blocked',async()=>{
+ const h=harness('analytics',undefined,undefined,true);await h.lifecycle('install')
+ for(const [path,method]of [['/_vercel/insights/script.js','GET'],['/_vercel/insights/view','POST'],['/_vercel/insights/session','POST']])assert.equal((await h.request(path,{method})).status,204)
+ assert.equal(h.network.length,6)
+ for(const [path,method]of [['/_vercel/insights/view?filename=PRIVATE.pdf','POST'],['/_vercel/insights/script.js?private','GET'],['/_vercel/insights/event','POST'],['/_vercel/insights/upload','POST'],['/_vercel/insights/view','PUT'],['https://foreign.example/_vercel/insights/view','POST']])assert.equal((await h.request(path,{method})).status,403)
+ assert.equal(h.network.length,6)
+ assert.equal((await h.status()).ready,true,'analytics never enters the verified asset cache')
+ const local=harness();await local.lifecycle('install');assert.equal((await local.request('/_vercel/insights/script.js')).status,403)
+ const offline=harness('offline',undefined,'/_vercel/insights/view',true);await offline.lifecycle('install');assert.equal((await offline.request('/_vercel/insights/view',{method:'POST'})).status,204);assert.equal((await offline.status()).ready,true)
+})
 
 test('complete verified installation serves worker/WASM/navigation offline without runtime network writes',async()=>{
  const h=harness();await h.lifecycle('install');await h.lifecycle('activate')

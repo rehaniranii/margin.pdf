@@ -1,5 +1,10 @@
 margin.pdf dependency notices
 
+Vercel Web Analytics (@vercel/analytics 2.0.1) — Vercel, Inc. MIT.
+Used only in Vercel production builds for visit statistics, with fixed page names.
+License: vercel-analytics-LICENSE.txt
+Source: https://github.com/vercel/analytics
+
 No license is assigned to the margin.pdf application by this notice.
 Distribution of the application remains pending the owner's licensing decision.
 

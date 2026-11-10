@@ -69,6 +69,17 @@ function targetFor(request) {
 }
 self.addEventListener('fetch', event => {
   event.respondWith((async () => {
+    // The owner's Vercel analytics integration is the sole network exception.
+    // Never cache or queue it; PDFs and unknown/foreign URLs stay blocked.
+    const url = new URL(event.request.url);
+    const analytics = MANIFEST.analyticsEnabled && url.origin === scopeURL.origin && !url.search && (
+      (event.request.method === 'GET' && url.pathname === '/_vercel/insights/script.js') ||
+      (event.request.method === 'POST' && ['/_vercel/insights/view','/_vercel/insights/session'].includes(url.pathname))
+    );
+    if (analytics) {
+      try { return await fetch(new Request(event.request, {credentials:'omit',redirect:'error',referrerPolicy:'no-referrer',cache:'no-store'})); }
+      catch { return new Response(null, {status:204}); }
+    }
     const target = targetFor(event.request);
     if (!target) return new Response('Only local application assets are available.', {status:403,headers:{'Content-Type':'text/plain',...SECURITY_HEADERS}});
     const cache = await caches.open(CACHE);

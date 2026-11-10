@@ -4,7 +4,7 @@ import { categories, toolHref, tools } from './tools'
 import './site.css'
 
 const notes = [
-  { title: 'Nothing is uploaded', body: 'A PDF engine compiled to WebAssembly runs inside this tab. Files are read from your disk and written back to it. There is no server to send them to.' },
+  { title: 'Documents stay local', body: 'A PDF engine compiled to WebAssembly runs inside this tab. Files are read from your disk and written back to it. The Vercel-hosted site uses basic visit analytics, which receive page names rather than your documents or editing actions.' },
   { title: 'Free, without the catch', body: 'No account, no paywall, no daily limit, no watermark added to your work. The only limit is your device’s memory.' },
   { title: 'Works offline', body: 'After the first visit the app keeps its own files, so it opens without a connection. Your documents are never cached.' },
 ]

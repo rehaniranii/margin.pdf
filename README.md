@@ -2,8 +2,9 @@
 
 A free, standalone PDF workspace built with React, TypeScript, Vite, and a local
 MuPDF WebAssembly worker. **Phases 1–6 are implemented and locally verified.** Existing-text editing
-is the primary workflow. No backend, accounts, analytics, payments, usage quotas,
-or external runtime services are used. Nothing has been deployed.
+is the primary workflow. PDF processing has no backend, accounts, payments or usage quotas.
+Vercel production builds use Web Analytics for basic visit statistics; document data stays
+on the device. Local builds do not enable analytics. Nothing has been deployed by this work.
 
 ## Run locally
 
@@ -325,8 +326,10 @@ come from the OS or MuPDF's bundled engine; any future emitted font files join t
 manifest automatically. Only those exact static GET URLs enter the versioned cache.
 Documents, filenames, passwords, page images/thumbnails, extracted text and edit plans
 never enter the offline cache, IndexedDB or browser storage. Nothing is written to
-localStorage. No accounts, analytics, advertisements, session recording,
-remote error reporting, remote fonts or runtime CDNs are included.
+localStorage by application code. No accounts, advertisements, session recording,
+remote error reporting, remote fonts or PDF runtime CDNs are included. The separately
+requested Vercel Web Analytics integration sends fixed application page names only;
+see the setup below and Vercel's linked privacy documentation for visit metadata.
 
 To protect existing tabs/jobs, first installation does not claim open pages, and
 updates never force activation or reload. The initial explicit reload enables control;
@@ -339,7 +342,9 @@ to repair the fixed asset list. Browser eviction, storage denial, private browsi
 real device limits can prevent continued offline availability.
 
 Controlled navigation uses the cached app shell. Unknown/foreign resources and non-GET
-requests are rejected without network fallback. Document JavaScript stays disabled;
+requests are rejected without network fallback, except the exact same-origin Vercel
+analytics script and page-view/session endpoints in analytics-enabled builds. These
+requests are never cached or queued by the service worker. Document JavaScript stays disabled;
 PDF links/actions are not connected to browser navigation, and previews come from local
 rendered bitmaps. Processing and utility tests include inert embedded JavaScript,
 OpenAction/AA, form submission/launch actions and remote links. Text-editing exports
@@ -384,6 +389,35 @@ its own window and works offline like the site.
   explains what to do. The running version is shown under Privacy & offline.
 - **Not included:** the Android share target, which would need the service worker to
   accept uploaded PDFs and hold them, against the "documents are never cached" design.
+
+## Vercel Web Analytics
+
+The requested integration uses the pinned MIT-licensed `@vercel/analytics` React SDK.
+It is enabled automatically when building with `VERCEL_ENV=production` (or
+`VITE_VERCEL_ENV=production`), as provided by Vercel. Development, preview deployments
+and ordinary local builds leave it disabled. Enable **Web Analytics** in the Vercel
+project dashboard before your next deployment; this repository change does not
+activate the dashboard or deploy anything. See [Vercel's setup guide](https://vercel.com/docs/analytics/quickstart).
+
+Hash routes are reported as fixed pages such as `/`, `/edit` and `/merge`; section
+links do not create extra page views. `beforeSend` replaces the URL with the fixed
+page name, omits URL query/hash parameters and drops custom events. No filename,
+password, PDF text, thumbnail, edit or export event is passed to analytics. Visit
+metadata is processed by Vercel as described in its [privacy documentation](https://vercel.com/docs/analytics/privacy-policy).
+The app's document processing and downloads remain local.
+
+The production service worker permits only the exact same-origin analytics script
+GET and page-view/session POST endpoints. These responses never enter the offline
+cache; failed analytics requests do not block the workspace. Offline page views are
+dropped, and opening the app offline does not load the analytics script. No CSP
+relaxation or foreign analytics origin was added. PDF assets remain available offline
+independently of analytics. Local tests cover redaction, dropped events, endpoint
+restrictions and cache isolation; live dashboard collection needs a Vercel deployment.
+The local production browser check used mocked analytics endpoints: hash-route page
+views reached the mock after service-worker control, private query values/extra fields
+were absent, analytics was not cached, and offline PDF editing/export passed with zero
+browser exceptions. Both ordinary and simulated Vercel production builds passed, as
+did all 124 automated tests and the dependency notice check.
 
 ## Licensing status
 

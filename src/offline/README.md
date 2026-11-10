@@ -23,7 +23,14 @@ file reads, failures and cancellation. No busy-state or file metadata is persist
 
 Controlled navigation uses the cached HTML shell. Workers and WASM are served from the
 same cache; unknown URLs, foreign resources and non-GET requests are rejected without
-network fallthrough. Application assets remain after Clear workspace. Working documents
+network fallthrough. The requested Vercel production analytics integration is the sole
+exception: an enabled build can fetch `/_vercel/insights/script.js` and POST to the exact
+`/_vercel/insights/view` and `/_vercel/insights/session` paths on the same origin, with no
+query strings, credentials, redirects or HTTP caching. These responses never enter
+CacheStorage; failures return an empty response and are not queued. Ordinary local
+builds have this exception disabled. Page-view URLs contain only fixed application
+page names; no document information or custom events are supplied to analytics.
+Application assets remain after Clear workspace. Working documents
 remain memory-only: offline reload does not restore edits, and confirming refresh still
 clears them. Browser eviction/private modes/device limits can remove offline availability.
 
