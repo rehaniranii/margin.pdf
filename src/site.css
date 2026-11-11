@@ -56,6 +56,7 @@ a:hover .tool-icon path,button:hover .tool-icon path{animation:draw .6s ease bot
 .fine-print p{margin:0;font-size:14.5px;line-height:1.7;color:var(--muted)}
 .site-footer{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;max-width:1160px;margin:56px auto 0;padding:24px clamp(16px,5vw,56px) 36px;border-top:1px solid var(--line);font-size:13px;color:var(--faint)}
 .site-footer span:first-child{font-family:var(--serif);color:var(--muted);font-weight:600}
+.site-footer a{color:var(--muted)}.site-footer a:hover{color:var(--ink)}
 /* Tool pages: the existing utility panel, laid out inline */
 .tool-heading{padding:36px 0 22px}
 .crumbs{display:flex;gap:8px;font-size:13px;color:var(--faint);margin-bottom:18px}.crumbs a:hover{color:var(--ink)}

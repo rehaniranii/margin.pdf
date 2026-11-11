@@ -11,4 +11,4 @@ export function SiteHeader() {
   </header>
 }
 
-export const SiteFooter = () => <footer className="site-footer"><span>margin.pdf</span><span>Free. No uploads, no account, works offline once loaded.</span><span>Created by Rehan Irani</span></footer>
+export const SiteFooter = () => <footer className="site-footer"><span>margin.pdf</span><span>Free. No uploads, no account, works offline once loaded.</span><span>Created by Rehan Irani · <a href="https://www.linkedin.com/in/rehan-irani/" target="_blank" rel="noopener noreferrer">LinkedIn</a> · <a href="https://x.com/RehanIrani1" target="_blank" rel="noopener noreferrer">X</a></span></footer>
