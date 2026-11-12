@@ -351,7 +351,7 @@ test('a replacement slightly wider than the original is narrowed to fit instead 
   const source = fixture()
   const output = openPdf(compileTextEdits(source, [{ ...edit, text: 'Original editable lines' }]))
   try { assert.ok(analyzePage(output, 0).view.regions.some(r => r.text === 'Original editable lines')) } finally { output.destroy() }
-  assert.throws(() => compileTextEdits(source, [{ ...edit, text: 'Original editable line, now twice as long' }]), /even with narrowed letters/)
+  assert.throws(() => compileTextEdits(source, [{ ...edit, text: 'Original editable line, now twice as long' }]), /free space around the line and narrowed letters/)
 })
 
 test('zero-width spaces (Google Docs, Word exports) are ignored instead of blocking the line', () => {
@@ -368,4 +368,92 @@ test('a symbol the standard fonts cannot draw is split off: the text stays edita
   compileTextEdits(source, [{ ...edit, regionId: text.id, text: 'Item two' }])
   compileTextEdits(source, [{ ...edit, regionId: symbol.id, text: '•' }])
   assert.throws(() => compileTextEdits(source, [{ ...edit, regionId: symbol.id, text: '●' }]), /Latin letters/)
+})
+
+test('a line grows into the empty space to its right, but never into the next text on that row', () => {
+  // "Short" at x 80; "Right side" further along the same baseline; a long line above sets the page's text margin.
+  const source = fixture({ content: 'BT /F 14 Tf 1 0 0 1 80 400 Tm (A long line that sets the right margin of the page text) Tj ET BT /F 14 Tf 1 0 0 1 80 360 Tm (Short) Tj ET BT /F 14 Tf 1 0 0 1 300 360 Tm (Right side) Tj ET' })
+  const short = regionsOf(source).find(r => r.text === 'Short')!
+  assert.ok(short.space && short.space[2] > short.bounds[2] + 150 && short.space[2] < 300, JSON.stringify(short.space))
+  const output = compileTextEdits(source, [{ ...edit, regionId: short.id, text: 'Short, now quite a bit longer', size: 14 }])
+  assert.ok(regionsOf(output).some(r => r.text === 'Short, now quite a bit longer'))
+  assert.throws(() => compileTextEdits(source, [{ ...edit, regionId: short.id, text: 'Short, now so much longer that it would run into the right side', size: 14 }]), /free space/)
+})
+
+test('right-aligned text grows to the left and keeps its right edge', () => {
+  const source = fixture({ content: 'BT /F 14 Tf 1 0 0 1 80 400 Tm (A long line that sets the right margin) Tj ET BT /F 14 Tf 1 0 0 1 80 360 Tm (Role) Tj ET BT /F 14 Tf 1 0 0 1 280.3 360 Tm (2024) Tj ET' })
+  const regions = regionsOf(source), date = regions.find(r => r.text === '2024')!
+  const output = regionsOf(compileTextEdits(source, [{ ...edit, regionId: date.id, text: 'May 2024 - Present', size: 14 }]))
+  const moved = output.find(r => r.text === 'May 2024 - Present')!
+  assert.ok(Math.abs(moved.bounds[2] - date.bounds[2]) < 1, `right edge ${moved.bounds[2]} vs ${date.bounds[2]}`)
+  assert.ok(moved.bounds[0] < date.bounds[0] - 50)
+})
+
+test('a paragraph gains extra lines only where the space below it is empty', () => {
+  const paragraph = 'BT /F 12 Tf 1 0 0 1 80 400 Tm (First line of a short paragraph here) Tj ET BT /F 12 Tf 1 0 0 1 80 386 Tm (and its second line) Tj ET'
+  const longer = 'First line of a short paragraph here and its second line, followed by a good deal more text that needs a third line'
+  const open = fixture({ content: paragraph })
+  const [region] = regionsOf(open)
+  assert.equal(region.lines, 2)
+  const grown = regionsOf(compileTextEdits(open, [{ ...edit, regionId: region.id, text: longer, size: 12 }]))
+  assert.equal(grown.length, 1); assert.equal(grown[0].text, longer); assert.ok(grown[0].lines! > 2)
+  const crowded = fixture({ content: `${paragraph} BT /F 12 Tf 1 0 0 1 80 368 Tm (Next paragraph starts right here) Tj ET` })
+  const blocked = regionsOf(crowded).find(r => r.text.startsWith('First line'))!
+  assert.throws(() => compileTextEdits(crowded, [{ ...edit, regionId: blocked.id, text: longer, size: 12 }]))
+})
+
+test('invisible text with nothing visible underneath stays view-only and says why', () => {
+  const doc = openPdf(fixture({ content: 'BT /F 20 Tf 3 Tr 1 0 0 1 80 360 Tm (Hidden words) Tj ET' }))
+  try { assert.ok(analyzePage(doc, 0).view.regions.every(region => /invisible text layer/.test(region.unsupported ?? ''))) } finally { doc.destroy() }
+})
+
+// A phone-scanner style page: a full-page photo (cream paper, a dark block where the words are) under invisible OCR text.
+function scanFixture(ocr = 'BT /F 20 Tf 3 Tr 1 0 0 1 80 360 Tm (Scanned words) Tj ET') {
+  const doc = new mupdf.PDFDocument(), font = new mupdf.Font('Helvetica')
+  const pixmap = new mupdf.Pixmap(mupdf.ColorSpace.DeviceRGB, [0, 0, 400, 500], false)
+  try {
+    const pixels = pixmap.getPixels(), stride = pixmap.getStride()
+    for (let y = 0; y < 500; y++) for (let x = 0; x < 400; x++) {
+      const ink = x >= 80 && x < 230 && y >= 126 && y < 141, o = y * stride + x * 3
+      pixels[o] = ink ? 30 : 240; pixels[o + 1] = ink ? 30 : 235; pixels[o + 2] = ink ? 40 : 220
+    }
+    const image = new mupdf.Image(pixmap), imageRef = doc.addImage(image), fontRef = doc.addSimpleFont(font)
+    const page = doc.addPage([0, 0, 400, 500], 0, { XObject: { Im: imageRef }, Font: { F: fontRef } }, `q 400 0 0 500 0 0 cm /Im Do Q ${ocr}`)
+    doc.insertPage(-1, page); page.destroy(); image.destroy()
+    const out = doc.saveToBuffer('compress'); try { return out.asUint8Array().slice() } finally { out.destroy() }
+  } finally { pixmap.destroy(); font.destroy(); doc.destroy() }
+}
+
+test('text on a scan is edited by covering the old words in the paper colour and drawing the new text', () => {
+  const source = scanFixture()
+  const [region] = regionsOf(source)
+  assert.equal(region.text, 'Scanned words'); assert.equal(region.unsupported, undefined); assert.equal(region.scan, true)
+  assert.match(region.color, /^#[0-3]/, `ink colour ${region.color}`)
+  const output = compileTextEdits(source, [{ ...edit, regionId: region.id, text: 'New', color: region.color }])
+  const doc = openPdf(output)
+  try {
+    assert.deepEqual(analyzePage(doc, 0).view.regions.map(r => r.text), ['New'])
+    // Where the old words were and the new text is not, the page now shows the paper colour, not the dark block.
+    const page = doc.loadPage(0), pixmap = page.toPixmap(mupdf.Matrix.identity, mupdf.ColorSpace.DeviceRGB, false)
+    try { const o = 133 * pixmap.getStride() + 200 * 3, pixels = pixmap.getPixels(); assert.ok(pixels[o] > 200 && pixels[o + 1] > 200, `pixel ${pixels[o]},${pixels[o + 1]},${pixels[o + 2]}`) } finally { pixmap.destroy(); page.destroy() }
+  } finally { doc.destroy() }
+})
+
+test('words attached to a drawing (ActualText, e.g. WordArt) are explained as not being text', () => {
+  // The letters inside only clip (render mode 7) and the visible result is a shape; the words come from ActualText.
+  const doc = openPdf(fixture({ content: '/Span <</ActualText (Module 1)>> BDC q BT /F 20 Tf 7 Tr 1 0 0 1 80 360 Tm (ABCDEFGH) Tj ET 0 g 80 350 100 20 re f Q EMC BT /F 12 Tf 1 0 0 1 80 300 Tm (Real text) Tj ET' }))
+  try {
+    const regions = analyzePage(doc, 0).view.regions
+    assert.match(regions.find(region => region.text.includes('Module'))?.unsupported ?? '', /not drawn as text/)
+    assert.equal(regions.find(region => region.text === 'Real text')?.unsupported, undefined)
+  } finally { doc.destroy() }
+})
+
+test('on a scan, OCR letters of a tightly packed neighbouring line that the erase takes along are put back', () => {
+  // The second OCR line sits 0.6 em below: its letter boxes reach up into the first line, its ink does not.
+  const source = scanFixture('BT /F 20 Tf 3 Tr 1 0 0 1 80 360 Tm (Alpha) Tj ET BT /F 20 Tf 3 Tr 1 0 0 1 80 348 Tm (aaaa) Tj ET')
+  const regions = regionsOf(source), alpha = regions.find(r => r.text === 'Alpha')!
+  assert.ok(alpha && !alpha.unsupported, JSON.stringify(regions.map(r => [r.text, r.unsupported])))
+  const output = regionsOf(compileTextEdits(source, [{ ...edit, regionId: alpha.id, text: 'Omega', color: '#000000' }]))
+  assert.ok(output.some(r => r.text === 'Omega') && output.some(r => r.text === 'aaaa'), JSON.stringify(output.map(r => r.text)))
 })

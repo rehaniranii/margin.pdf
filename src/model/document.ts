@@ -8,15 +8,22 @@ export type RenderedPage = { png: ArrayBuffer; width: number; height: number; bo
 export type ProofReport = { originalRemoved: boolean; replacementExtractable: boolean; neighborsPreserved: boolean }
 export type Point = [number, number]
 export type Matrix = [number, number, number, number, number, number]
-export type ReplacementFont = 'Helvetica' | 'Helvetica-Bold' | 'Helvetica-Oblique' | 'Helvetica-BoldOblique' | 'Times-Roman' | 'Times-Bold' | 'Times-Italic' | 'Times-BoldItalic' | 'Courier' | 'Courier-Bold' | 'Courier-Oblique' | 'Courier-BoldOblique'
-export type TextEdit = { type: 'replace-text'; page: number; regionId: string; text: string; font: ReplacementFont; size: number; color: string; link?: string }
+export type StandardFont = 'Helvetica' | 'Helvetica-Bold' | 'Helvetica-Oblique' | 'Helvetica-BoldOblique' | 'Times-Roman' | 'Times-Bold' | 'Times-Italic' | 'Times-BoldItalic' | 'Courier' | 'Courier-Bold' | 'Courier-Oblique' | 'Courier-BoldOblique'
+// Bundled fonts with the same letter widths as common document fonts (Calibri, Cambria, LaTeX's Computer Modern); embedded when used.
+export type MatchedFont = `${'Carlito' | 'Caladea' | 'LatinModern'}-${'Regular' | 'Bold' | 'Italic' | 'BoldItalic'}`
+export type ReplacementFont = StandardFont | MatchedFont
+// Bold/italic for part of the text: consecutive pieces whose texts join to the full text. Without spans the whole
+// text uses `font`; with them, each piece uses `font`'s family in its own weight and slant.
+export type TextSpan = { text: string; bold: boolean; italic: boolean }
+export type TextEdit = { type: 'replace-text'; page: number; regionId: string; text: string; font: ReplacementFont; size: number; color: string; link?: string; spans?: TextSpan[] }
 // `lines`/`lineGap` describe a paragraph of same-style lines; absent means a single line.
-// `link` is the web address of a link that covers exactly this text.
-export type TextRegion = { id: string; text: string; bounds: Rect; origin: Point; direction: Point; fontName: string; fontSize: number; color: string; unsupported?: string; lines?: number; lineGap?: number; link?: string }
+// `link` is the web address of a link that covers exactly this text. `space` is the area an edit may grow into.
+// `scan`: the line is OCR text over a scanned image; an edit covers the old words with the paper colour and draws the new text.
+export type TextRegion = { id: string; text: string; bounds: Rect; origin: Point; direction: Point; fontName: string; fontSize: number; color: string; unsupported?: string; lines?: number; lineGap?: number; link?: string; space?: Rect; scan?: boolean }
 export type PageText = { page: number; bounds: Rect; regions: TextRegion[]; message?: string }
 export type ObjectBox = { x: number; y: number; width: number; height: number }
 type ObjectBase = { id: string; page: number; box: ObjectBox }
-export type AddedText = ObjectBase & { kind: 'text'; text: string; font: ReplacementFont; size: number; color: string }
+export type AddedText = ObjectBase & { kind: 'text'; text: string; font: ReplacementFont; size: number; color: string; spans?: TextSpan[] }
 export type AddedImage = ObjectBase & { kind: 'image'; assetId: string }
 export type AddedHighlight = ObjectBase & { kind: 'highlight'; color: string; opacity: number }
 export type AddedRectangle = ObjectBase & { kind: 'rectangle'; color: string; lineWidth: number }

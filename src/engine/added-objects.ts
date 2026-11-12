@@ -1,14 +1,25 @@
 import * as mupdf from 'mupdf'
-import type { AddedObject, Rect } from '../model/document'
+import type { AddedObject, AddedText, Rect, ReplacementFont } from '../model/document'
 import { validBox } from '../geometry/objects'
 import { contains } from '../geometry/affine'
 import { pdfLiteral as literal, supportedText, unsupportedMessage } from '../model/text-encoding'
-import { REPLACEMENT_FONTS } from './text-edit'
+import { EDIT_FONTS } from './text-edit'
+import { fontResource, openFont, segmentsOf, StyledText } from './fonts'
+import { styledRuns } from '../model/fonts'
 import { appendPageForm } from './page-form'
 import { openPdf } from './mupdf-adapter'
 import type { ImageAssets } from './image-assets'
 
 const num = (n: number) => Number(n.toFixed(6)).toString()
+
+// An added text box's lines as [start, end) ranges, and each character's font (bold and italic parts).
+function textLayout(object: AddedText) {
+  const fonts = styledRuns(object.text, object.font, object.spans).flatMap(run => Array.from({ length: run.text.length }, () => run.font))
+  const lines: [number, number][] = []
+  let start = 0
+  for (const line of object.text.split('\n')) { lines.push([start, start + line.length]); start += line.length + 1 }
+  return { fonts, lines, baseline: (index: number) => object.box.y + 2 + object.size * (1.1 + index * 1.3) }
+}
 const rgb = (color: string) => [1,3,5].map(index => num(parseInt(color.slice(index, index + 2), 16) / 255)).join(' ')
 
 export function validateObject(object: AddedObject, bounds: Rect) {
@@ -18,14 +29,14 @@ export function validateObject(object: AddedObject, bounds: Rect) {
   if (object.kind === 'highlight' && (!Number.isFinite(object.opacity) || object.opacity < 0.05 || object.opacity > 0.75)) throw new Error('Highlight opacity must be between 5% and 75%.')
   if (object.kind === 'text') {
     if (!object.text.trim() || !object.text.split('\n').every(supportedText)) throw new Error(`Enter visible text. ${unsupportedMessage} No characters are dropped.`)
-    if (!REPLACEMENT_FONTS.includes(object.font) || !Number.isFinite(object.size) || object.size < 4 || object.size > 144) throw new Error('Choose an available font and a size from 4 to 144 points.')
-    const font = new mupdf.Font(object.font), text = new mupdf.Text()
+    if (!EDIT_FONTS.includes(object.font) || !Number.isFinite(object.size) || object.size < 4 || object.size > 144) throw new Error('Choose an available font and a size from 4 to 144 points.')
+    const { fonts, lines, baseline } = textLayout(object), layout = new StyledText()
     try {
-      for (const [index, line] of object.text.split('\n').entries()) text.showString(font, [object.size, 0, 0, -object.size, object.box.x + 2, object.box.y + 2 + object.size * (1.1 + index * 1.3)], line)
-      const ink = text.getBounds(null as unknown as mupdf.StrokeState, mupdf.Matrix.identity)
+      lines.forEach(([start, end], index) => layout.show([object.size, 0, 0, -object.size, object.box.x + 2, baseline(index)], segmentsOf(object.text, fonts, start, end)))
+      const ink = layout.ink()
       const box: Rect = [object.box.x, object.box.y, object.box.x + object.box.width, object.box.y + object.box.height]
-      if (!contains(box, ink)) throw new Error('Added text does not fit its box. Enlarge the box, shorten the text, or reduce the font size.')
-    } finally { text.destroy(); font.destroy() }
+      if (ink && !contains(box, ink)) throw new Error('Added text does not fit its box. Enlarge the box, shorten the text, or reduce the font size.')
+    } finally { layout.dispose() }
   }
   if (object.kind === 'ink' && (!object.points.length || object.points.some(point => point.length !== 2 || point.some(n => !Number.isFinite(n) || n < 0 || n > 1)))) throw new Error('This drawing has invalid points. Draw the stroke again.')
   if (!['text','image','highlight','rectangle','ink'].includes(object.kind)) throw new Error('This object type is not supported.')
@@ -49,9 +60,13 @@ export function compileObjects(source: Uint8Array, objects: AddedObject[], asset
           const { x, y, width: w, height: h } = object.box
           const rect = [x,y,w,h].map(num).join(' ')
           if (object.kind === 'text') {
-            const font = new mupdf.Font(object.font); owned.push(font)
-            const reference = doc.addSimpleFont(font); owned.push(reference); fonts[`F${i}`] = reference
-            for (const [line, value] of object.text.split('\n').entries()) commands.push(`q BT /F${i} ${num(object.size)} Tf ${rgb(object.color)} rg 1 0 0 -1 ${num(x + 2)} ${num(y + 2 + object.size * (1.1 + line * 1.3))} Tm ${literal(value)} Tj ET Q`)
+            // One font resource per weight/slant used, each embedding only its own characters.
+            const layout = textLayout(object), used = [...new Set(layout.fonts)], key = (name: ReplacementFont) => `F${i}_${used.indexOf(name)}`
+            for (const name of used) {
+              const font = openFont(name); owned.push(font)
+              const reference = fontResource(doc, name, font, [...object.text].filter((char, index) => layout.fonts[index] === name && char !== '\n').join('')); owned.push(reference); fonts[key(name)] = reference
+            }
+            for (const [index, [start, end]] of layout.lines.entries()) commands.push(`q BT ${rgb(object.color)} rg 1 0 0 -1 ${num(x + 2)} ${num(layout.baseline(index))} Tm ${segmentsOf(object.text, layout.fonts, start, end).map(segment => `/${key(segment.font)} ${num(object.size)} Tf ${literal(segment.text)} Tj`).join(' ')} ET Q`)
           } else if (object.kind === 'image') {
             const asset = assets.get(object.assetId)
             if (Math.abs(w / h - asset.width / asset.height) > asset.width / asset.height * 0.005) throw new Error('Keep the image’s original proportions when resizing it.')

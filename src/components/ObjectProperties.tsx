@@ -1,6 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { AddedObject, EditorTool, ImageAssetInfo } from '../model/document'
 import { FontSelect } from './FontSelect'
+import { StyleToggles, stylesIn } from './StyleToggles'
+import { RichTextField } from './RichTextField'
+import type { RichTextHandle } from './RichTextField'
 
 export type ToolDefaults = { color: string; lineWidth: number; opacity: number; purpose: 'note' | 'visual-signature' }
 
@@ -23,6 +26,8 @@ export function ObjectProperties({ object, revision, tool, defaults, asset, busy
   const dirty = !!draft && JSON.stringify(draft) !== JSON.stringify(object)
   useEffect(() => { onDirty(dirty) },[dirty])
   const update = (value: Partial<AddedObject>) => setDraft(current => current ? { ...current,...value } as AddedObject : current)
+  const field = useRef<RichTextHandle>(null)
+  const [range, setRange] = useState<[number, number]>([0, 0])
   function boxField(key: 'x'|'y'|'width'|'height', value: number) {
     if (!draft) return
     const box = { ...draft.box,[key]:value }
@@ -37,13 +42,15 @@ export function ObjectProperties({ object, revision, tool, defaults, asset, busy
     <h2 className="panel-heading">{draft ? objectTitles[draft.kind] : toolTitles[tool] ?? 'Tools'}</h2>
     {draft ? <form className="text-form" onSubmit={event => { event.preventDefault(); onApply(draft) }}><fieldset className="object-form-fields" disabled={busy}>
       {draft.kind === 'text' && <>
-        <label htmlFor="added-text">Text</label>
-        <textarea id="added-text" aria-label="Text content" rows={3} value={draft.text} onChange={event => update({text:event.target.value})}/>
+        <label id="added-text-label">Text</label>
+        <RichTextField ref={field} id="added-text" className="paragraph" label="Text content" multiline text={draft.text} font={draft.font} spans={draft.spans} disabled={busy}
+          onChange={value => update({text:value.text,font:value.font,spans:value.spans})} onSelection={setRange}/>
         <div className="style-row">
           <div className="field grow"><label htmlFor="added-font">Font</label><FontSelect id="added-font" label="Font" value={draft.font} onChange={font => update({font})}/></div>
           <div className="field size"><label htmlFor="added-size">Size</label><input id="added-size" aria-label="Size (pt)" type="number" min="4" max="144" step="0.5" value={Number.isFinite(draft.size)?draft.size:''} onChange={event => update({size:event.target.valueAsNumber})}/></div>
           {color('object-color', draft.color, value => update({color:value}))}
         </div>
+        <div className="style-extra"><span className="style-label">Style</span><StyleToggles {...stylesIn(draft.text, draft.font, draft.spans, range)} disabled={busy} onToggle={style => field.current?.toggle(style)}/></div>
       </>}
       {draft.kind === 'image' && <>{thumbnail && <img className="asset-preview" src={thumbnail} alt="Added image preview"/>}<button type="button" className="link-button" onClick={onChooseImage} disabled={busy || dirty}>Replace image</button></>}
       {draft.kind !== 'text' && draft.kind !== 'image' && <div className="style-row compact">

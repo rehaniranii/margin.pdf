@@ -3,10 +3,12 @@ import type { Matrix, PageText, Point, Rect, TextRegion } from '../model/documen
 import { contains, coverage, intersects, overlaps, quadBounds, samePoint, union } from '../geometry/affine'
 
 // `stroke`: the glyph is also outlined (fill + stroke, a common faux bold); width is in page units.
-export type Glyph = { unicode: number; origin: Point; bounds: Rect; matrix: Matrix; font: string; safe: boolean; order: number; clips: Rect[]; stroke?: { width: number; color: string } }
-export type Graphic = { bounds: Rect; order: number; background: boolean; reason?: string }
+// `invisible`: text that paints nothing (render mode 3), such as the OCR layer a scanner app puts over the page photo.
+export type Glyph = { unicode: number; origin: Point; bounds: Rect; matrix: Matrix; font: string; safe: boolean; order: number; clips: Rect[]; stroke?: { width: number; color: string }; invisible?: boolean }
+export type Graphic = { bounds: Rect; order: number; background: boolean; reason?: string; image?: boolean }
 // `removal` is the ink of the region's own glyphs: what redaction removes and what must not touch other content.
-export type AnalyzedRegion = TextRegion & { glyphIndices: number[]; removal?: Rect; linkBounds?: Rect }
+// `cover`/`paper`: on a scan, the area of the old words in the photo and the paper colour to paint over it.
+export type AnalyzedRegion = TextRegion & { glyphIndices: number[]; removal?: Rect; linkBounds?: Rect; free?: FreeSpace; cover?: Rect; paper?: string }
 // A point inside a glyph that redaction can target: 0.3 em above the baseline, under the ink's centre (0.1 em
 // along for letters without ink: spaces are narrow, and the extra letters of "fi" share the first letter's box). MuPDF judges glyphs by their line box,
 // not their ink, so this point is inside even for "_" or ",". Redacting a tiny box here removes exactly that
@@ -20,6 +22,8 @@ export function glyphDot(glyph: Glyph): Rect {
 export type Analysis = { view: PageText; regions: AnalyzedRegion[]; glyphs: Glyph[]; pdfToPage: Matrix; graphics: Graphic[] }
 const near = (a: number, b: number) => Math.abs(a - b) < 0.02
 import { supportedText, webAddress, winAnsiCode } from '../model/text-encoding'
+import { freeSpace, type FreeSpace } from './free-space'
+import { PagePixels } from './scan'
 // Typographic ligatures (ff, fi, fl, ffi, ffl, long-s t, st) are one painted glyph; edit them as their letters.
 const ligatures: Record<number, string> = { 0xfb00: 'ff', 0xfb01: 'fi', 0xfb02: 'fl', 0xfb03: 'ffi', 0xfb04: 'ffl', 0xfb05: 'st', 0xfb06: 'st' }
 const editableCode = (unicode: number) => winAnsiCode(String.fromCodePoint(unicode)) !== undefined || unicode in ligatures
@@ -51,7 +55,7 @@ export function paintedGlyphs(page: mupdf.PDFPage): { glyphs: Glyph[]; reason?: 
   const groups: boolean[] = []
   let tiles = 0
   const visibleArea = (bounds: Rect): Rect => clips.reduce<Rect>((area, clip) => clip ? [Math.max(area[0], clip[0]), Math.max(area[1], clip[1]), Math.min(area[2], clip[2]), Math.min(area[3], clip[3])] : area, bounds)
-  const obstacle = (bounds: Rect, reason?: string) => { const area = visibleArea(bounds); if (area[2] > area[0] && area[3] > area[1]) obstacles.push({ bounds: area, order: order++, background: false, reason }) }
+  const obstacle = (bounds: Rect, reason?: string, image?: boolean) => { const area = visibleArea(bounds); if (area[2] > area[0] && area[3] > area[1]) obstacles.push({ bounds: area, order: order++, background: false, reason, ...(image ? { image } : {}) }) }
   const rectangle = (path: mupdf.Path, ctm: Matrix | null) => {
     const points: Point[] = []; let curved = false
     const at = (x: number, y: number): Point => ctm ? [x * ctm[0] + y * ctm[2] + ctm[4], x * ctm[1] + y * ctm[3] + ctm[5]] : [x, y]
@@ -60,26 +64,26 @@ export function paintedGlyphs(page: mupdf.PDFPage): { glyphs: Glyph[]; reason?: 
     if (points.length === 5 && samePoint(points[0], points[4])) points.pop()
     return !curved && points.length === 4 && points.every((point, i) => near(point[0], points[(i + 1) % 4][0]) || near(point[1], points[(i + 1) % 4][1]))
   }
-  const device = new mupdf.Device({
-    fillText(text, ctm, space, _color, alpha) {
-      const paintOrder = order++
-      const activeClips = clips.filter((clip): clip is Rect => clip !== null)
-      const plain = alpha === 1 && !tiles && !groups.some(Boolean)
+  // Every letter drawn, visible or not, with where it is and whether replacing it would change how it looks.
+  const collect = (text: mupdf.Text, ctm: Matrix, alpha: number, invisible: boolean) => {
+    const paintOrder = order++
+    const activeClips = clips.filter((clip): clip is Rect => clip !== null)
+    const plain = alpha === 1 && !tiles && !groups.some(Boolean)
+    text.walk({ showGlyph(font, trm, glyph, unicode, wmode, bidi) {
+      const matrix = mupdf.Matrix.concat(trm, ctm)
+      const single = new mupdf.Text()
       try {
-        text.walk({ showGlyph(font, trm, glyph, unicode, wmode, bidi) {
-          const matrix = mupdf.Matrix.concat(trm, ctm)
-          const single = new mupdf.Text()
-          try {
-            if (glyph >= 0) single.showGlyph(font, matrix, glyph, unicode, wmode)
-            const bounds = glyph < 0 ? [matrix[4], matrix[5], matrix[4], matrix[5]] as Rect : single.getBounds(null as unknown as mupdf.StrokeState, mupdf.Matrix.identity)
-            // glyph < 0 is an extra letter of the previous glyph (a ligature such as "fi" mapped to two letters); it is as safe as that glyph.
-            const base = glyph >= 0 || glyphs[glyphs.length - 1]?.safe === true
-            glyphs.push({ unicode, origin: [matrix[4], matrix[5]], bounds, matrix, font: font.getName(), safe: plain && wmode === 0 && bidi === 0 && base && editableCode(unicode) && clips.every(clip => clip !== null), order: paintOrder, clips: activeClips })
-          } finally { single.destroy() }
-          // Text.walk supplies a shared cached font wrapper. Do not destroy it.
-        } })
-      } finally { text.destroy(); space.destroy() }
-    },
+        if (glyph >= 0) single.showGlyph(font, matrix, glyph, unicode, wmode)
+        const bounds = glyph < 0 ? [matrix[4], matrix[5], matrix[4], matrix[5]] as Rect : single.getBounds(null as unknown as mupdf.StrokeState, mupdf.Matrix.identity)
+        // glyph < 0 is an extra letter of the previous glyph (a ligature such as "fi" mapped to two letters); it is as safe as that glyph.
+        const base = glyph >= 0 || glyphs[glyphs.length - 1]?.safe === true
+        glyphs.push({ unicode, origin: [matrix[4], matrix[5]], bounds, matrix, font: font.getName(), safe: plain && wmode === 0 && bidi === 0 && base && editableCode(unicode) && clips.every(clip => clip !== null), order: paintOrder, clips: activeClips, ...(invisible ? { invisible } : {}) })
+      } finally { single.destroy() }
+      // Text.walk supplies a shared cached font wrapper. Do not destroy it.
+    } })
+  }
+  const device = new mupdf.Device({
+    fillText(text, ctm, space, _color, alpha) { try { collect(text, ctm, alpha, false) } finally { text.destroy(); space.destroy() } },
     // Outlined or invisible text is not editable itself; it only blocks lines it overlaps.
     // Outlined text exactly over the same filled glyphs is one faux-bold line: record the outline on those glyphs so the
     // replacement can repeat it. Any other outlined text only blocks the lines it overlaps.
@@ -96,7 +100,8 @@ export function paintedGlyphs(page: mupdf.PDFPage): { glyphs: Glyph[]; reason?: 
         else for (const glyph of outlined) glyph.stroke = { width: stroke.getLineWidth() * expansion, color: rgbHex(color.length === 1 || color.length === 3 ? [...color] : [0]) }
       } finally { text.destroy(); stroke.destroy(); space.destroy() }
     },
-    ignoreText(text, ctm) { try { obstacle(text.getBounds(null as unknown as mupdf.StrokeState, ctm), 'Invisible text (such as an OCR layer) overlaps this line. It is view-only.') } finally { text.destroy() } },
+    // Invisible text is collected like any other; analysis decides whether its line can be edited (a scan) or not.
+    ignoreText(text, ctm) { try { collect(text, ctm, 1, true) } finally { text.destroy() } },
     clipText(text) { clips.push(null); text.destroy() },
     clipStrokeText(text, stroke) { clips.push(null); text.destroy(); stroke.destroy() },
     clipPath(path, _evenOdd, ctm) {
@@ -113,7 +118,7 @@ export function paintedGlyphs(page: mupdf.PDFPage): { glyphs: Glyph[]; reason?: 
     beginTile() { tiles++; return 0 },
     endTile() { tiles-- },
     // Optional-content layers are allowed; the replacement is drawn outside the layer.
-    fillImage(image, ctm) { try { obstacle(mupdf.Rect.transform([0, 0, 1, 1], ctm)) } finally { borrowed(image) } },
+    fillImage(image, ctm) { try { obstacle(mupdf.Rect.transform([0, 0, 1, 1], ctm), undefined, true) } finally { borrowed(image) } },
     fillImageMask(image, ctm, space) { try { obstacle(mupdf.Rect.transform([0, 0, 1, 1], ctm)) } finally { borrowed(image); space.destroy() } },
     fillShade(shade, ctm) { try { obstacle(mupdf.Rect.transform(shade.getBounds(), ctm)) } finally { borrowed(shade) } },
     fillPath(path, _evenOdd, ctm, space, _color, alpha) {
@@ -135,6 +140,8 @@ export function analyzePage(doc: mupdf.PDFDocument, index: number): Analysis {
     const bounds = page.getBounds()
     const paint = paintedGlyphs(page)
     let pageReason = paint.reason
+    // Invisible text has nothing on the page to replace: what shows is part of an image (a scan) or drawn as shapes.
+    const invisibleReason = 'This is an invisible text layer (for example the searchable text added to a scan). The words you see are part of an image or drawing, not text, so there is nothing here to replace.'
     if (doc.wasRepaired()) pageReason = 'This PDF needed repair when opened. Text editing is disabled to protect its contents.'
     const annotations = [...page.getAnnotations(), ...page.getWidgets()]
     const annotationBounds: Rect[] = []
@@ -237,7 +244,10 @@ export function analyzePage(doc: mupdf.PDFDocument, index: number): Analysis {
               if (!glyph.safe && editableCode(glyph.unicode)) current.unsupported ??= 'This line is drawn with an effect (transparency, a blend mode, a mask, a pattern or a shaped clip). Replacing it would change how it looks, so it is view-only.'
               const raw = mupdf.Matrix.concat(glyph.matrix, inverse)
               // Upright text or text turned by a quarter turn (sideways footers, vertical labels), evenly scaled and not mirrored.
-              const quarterTurn = near(raw[0], raw[3]) && near(raw[1], -raw[2]) && (near(raw[0], 0) || near(raw[1], 0)) && raw[0] * raw[3] - raw[1] * raw[2] > 0
+              // OCR layers stretch each word to fit the photo and follow a slightly tilted photo. Invisible letters are never
+              // redrawn, so for them only the direction matters: within 12° of straight or of a quarter turn, not mirrored.
+              const angle = Math.atan2(raw[1], raw[0]) * 180 / Math.PI, offAxis = Math.abs(angle - Math.round(angle / 90) * 90)
+              const quarterTurn = raw[0] * raw[3] - raw[1] * raw[2] > 0 && (glyph.invisible ? offAxis <= 12 : near(raw[0], raw[3]) && near(raw[1], -raw[2]) && (near(raw[0], 0) || near(raw[1], 0)))
               if (!glyph.safe || !quarterTurn) current.unsupported ??= 'This line uses an unsupported appearance or transformation. Only straight text (upright or turned by 90°) can be edited.'
               // The quad must agree with the source baseline; reject skew or stretching.
               const u: Point = [quad[2] - quad[0], quad[3] - quad[1]]
@@ -277,6 +287,14 @@ export function analyzePage(doc: mupdf.PDFDocument, index: number): Analysis {
         const backdrop = safeBackdrop(obstacle, removal, firstOrder) || coverage(obstacle.bounds, removal) < 0.15
         if (!backdrop) region.unsupported ??= obstacle.reason ?? 'An image or graphic is drawn on top of this line. It is view-only to preserve that content.'
       }
+      // Not one letter drawn anywhere: the words describe an image or shapes (PDF ActualText, e.g. PowerPoint WordArt).
+      // Invisible letters: editable only as a scan, i.e. over an image painted before them (the page photo). Then the
+      // edit covers the old words in the image and draws the new text; without an image there is nothing visible to edit.
+      const glyphsOf = region.glyphIndices.map(i => paint.glyphs[i])
+      region.scan = glyphsOf.length > 0 && glyphsOf.every(glyph => glyph.invisible) || undefined
+      if (region.scan && !paint.obstacles.some(graphic => graphic.image && graphic.order < glyphsOf[0].order && contains(graphic.bounds, removal, 2))) { region.scan = undefined; region.unsupported ??= invisibleReason }
+      if (glyphsOf.some(glyph => glyph.invisible) && !region.scan) region.unsupported ??= invisibleReason
+      if (!region.glyphIndices.length && region.unsupported?.startsWith('These characters cannot be matched')) region.unsupported = 'This text is not drawn as text: it describes an image or shapes (such as WordArt), so there is nothing here to replace. Add a text box on top instead.'
       if (!region.glyphIndices.length) region.unsupported ??= 'No editable glyphs were found in this line.'
       return !region.unsupported
     }
@@ -307,7 +325,24 @@ export function analyzePage(doc: mupdf.PDFDocument, index: number): Analysis {
         ? { text: ' ', lines: (a.lines ?? 1) + (b.lines ?? 1), lineGap: a.lineGap ?? gap } : undefined
     })
     paragraphs.forEach((region, i) => { region.id = `${index}:${i}` })
-    return { view: { page: index, bounds, regions: paragraphs.map(({ glyphIndices: _, removal: _r, linkBounds: _l, ...region }) => region), message: !paragraphs.length ? 'No editable text was found. This may be a scanned page; OCR is outside this release.' : pageReason }, regions: paragraphs, glyphs: paint.glyphs, pdfToPage, graphics: paint.obstacles }
+    // Room each editable line has to grow into, without touching other content.
+    // Scanned lines: read the paper and ink colours from the photo, and the area of the old words to cover.
+    const pixels = paragraphs.some(region => region.scan && !region.unsupported) ? new PagePixels(page) : undefined
+    for (const region of paragraphs) if (!region.unsupported) {
+      let blank: ((rect: Rect) => boolean) | undefined
+      if (region.scan && pixels) {
+        const removal = region.removal ?? region.bounds, base = union(region.bounds, removal), pad = region.fontSize * 0.12, mine = new Set(region.glyphIndices)
+        const padded: Rect = [base[0] - pad, base[1] - pad, base[2] + pad, base[3] + pad]
+        // A little margin catches ink the OCR boxes miss, unless it would reach a neighbouring word.
+        region.cover = paint.glyphs.some((glyph, i) => !mine.has(i) && overlaps(padded, glyph.bounds)) ? base : padded
+        const colors = pixels.colorsAround(region.cover, removal, region.fontSize * 0.3)
+        region.paper = colors.paper; region.color = colors.ink
+        blank = rect => pixels.blank(rect, colors.paper)
+      }
+      region.free = freeSpace(region, paint.glyphs, paint.obstacles, links.filter(link => link.bounds !== region.linkBounds).map(link => link.bounds), bounds, blank)
+      region.space = region.free.area
+    }
+    return { view: { page: index, bounds, regions: paragraphs.map(({ glyphIndices: _, removal: _r, linkBounds: _l, free: _f, cover: _c, paper: _p, ...region }) => region), message: !paragraphs.length ? 'No editable text was found. This may be a scanned page; OCR is outside this release.' : pageReason }, regions: paragraphs, glyphs: paint.glyphs, pdfToPage, graphics: paint.obstacles }
   } finally { page.destroy() }
 }
 
@@ -338,6 +373,11 @@ function joinRegions(regions: AnalyzedRegion[], check: (region: AnalyzedRegion) 
 // the same wording may legitimately occur elsewhere in the document.
 export function assertGlyphs(actual: Glyph[], expected: Pick<Glyph, 'unicode' | 'origin'>[]) {
   if (actual.length !== expected.length) throw new Error('PDF verification failed: unexpected text was removed or added. No changes were applied.')
+  if (missingGlyphs(actual, expected).length) throw new Error('PDF verification failed: text positions changed. No changes were applied.')
+}
+
+/** The expected glyphs that are not in `actual` (same letter at the same position), each actual glyph used once. */
+export function missingGlyphs<T extends Pick<Glyph, 'unicode' | 'origin'>>(actual: Pick<Glyph, 'unicode' | 'origin'>[], expected: T[]): T[] {
   const grouped = new Map<string, Point[]>()
   const cell = 0.04
   const key = (unicode: number, x: number, y: number) => `${unicode}:${x}:${y}`
@@ -345,14 +385,13 @@ export function assertGlyphs(actual: Glyph[], expected: Pick<Glyph, 'unicode' | 
     const k = key(glyph.unicode, Math.floor(glyph.origin[0] / cell), Math.floor(glyph.origin[1] / cell))
     const values = grouped.get(k) ?? []; values.push(glyph.origin); grouped.set(k, values)
   }
-  for (const glyph of expected) {
+  return expected.filter(glyph => {
     const x = Math.floor(glyph.origin[0] / cell), y = Math.floor(glyph.origin[1] / cell)
-    let found = false
-    for (let dx = -1; dx <= 1 && !found; dx++) for (let dy = -1; dy <= 1 && !found; dy++) {
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
       const candidates = grouped.get(key(glyph.unicode, x + dx, y + dy)) ?? []
       const index = candidates.findIndex(origin => samePoint(origin, glyph.origin))
-      if (index >= 0) { candidates[index] = candidates[candidates.length - 1]; candidates.pop(); found = true }
+      if (index >= 0) { candidates[index] = candidates[candidates.length - 1]; candidates.pop(); return false }
     }
-    if (!found) throw new Error('PDF verification failed: text positions changed. No changes were applied.')
-  }
+    return true
+  })
 }

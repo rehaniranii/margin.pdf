@@ -4,6 +4,7 @@ import { regionStyle } from '../geometry/page'
 import { ObjectLayer } from './ObjectLayer'
 import { InlineTextEditor } from './InlineTextEditor'
 import type { InlineDraft } from './InlineTextEditor'
+import type { StyledValue } from './RichTextField'
 
 export function usePageImage(page?: RenderedPage) {
   // Ready on the first render: a freshly mounted preview (e.g. a page becoming editable) never shows the empty state.
@@ -25,12 +26,14 @@ export function usePageImage(page?: RenderedPage) {
   return url
 }
 
-export function PagePreview({ image, page, zoom, regions = [], edits = [], selected, busy, showRegions = true, onSelect, tool = 'edit', objects = [], selectedObject, dirty = false, strokeWidth = 2, onSelectObject, onPutObject, onCreateObject, onInline, onEditObjectText, inlineDraft, onInlineChange, onInlineApply, onInlineCancel }: { onInline?: (region: TextRegion) => void; onEditObjectText?: (object: AddedObject) => void; inlineDraft?: InlineDraft; onInlineChange?: (text: string) => void; onInlineApply?: () => void; onInlineCancel?: () => void; image?: RenderedPage; page: number; zoom: number; regions?: TextRegion[]; edits?: TextEdit[]; selected?: string; busy?: boolean; showRegions?: boolean; onSelect?: (region: TextRegion) => void; tool?: EditorTool; objects?: AddedObject[]; selectedObject?: string; dirty?: boolean; strokeWidth?: number; onSelectObject?: (id?: string) => void; onPutObject?: (object: AddedObject) => void; onCreateObject?: (tool: EditorTool, box: ObjectBox, points: Point[]) => void }) {
+export function PagePreview({ image, page, zoom, regions = [], edits = [], selected, busy, showRegions = true, onSelect, tool = 'edit', objects = [], selectedObject, dirty = false, strokeWidth = 2, onSelectObject, onPutObject, onCreateObject, onInline, onEditObjectText, inlineDraft, onInlineChange, onInlineApply, onInlineCancel }: { onInline?: (region: TextRegion) => void; onEditObjectText?: (object: AddedObject) => void; inlineDraft?: InlineDraft; onInlineChange?: (value: StyledValue) => void; onInlineApply?: () => void; onInlineCancel?: () => void; image?: RenderedPage; page: number; zoom: number; regions?: TextRegion[]; edits?: TextEdit[]; selected?: string; busy?: boolean; showRegions?: boolean; onSelect?: (region: TextRegion) => void; tool?: EditorTool; objects?: AddedObject[]; selectedObject?: string; dirty?: boolean; strokeWidth?: number; onSelectObject?: (id?: string) => void; onPutObject?: (object: AddedObject) => void; onCreateObject?: (tool: EditorTool, box: ObjectBox, points: Point[]) => void }) {
   const url = usePageImage(image)
   if (!image || !url) return <div className="empty-page"><svg className="empty-icon" viewBox="0 0 48 48" aria-hidden="true"><path d="M14 6h14l8 8v28H14z"/><path d="M28 6v8h8"/><path d="M25 34V21M20 26l5-5 5 5"/></svg><h2>Your document belongs here.</h2><p>Drop a PDF anywhere here, or open one from your device. It never leaves this browser.</p></div>
   const width = (image.bounds[2] - image.bounds[0]) * zoom
   return <div className="document-page page-paper" style={{ width, height: width * image.height / image.width }}>
     <img className="page-bitmap" src={url} draggable={false} alt={`PDF page ${page + 1}`}/>
+    {/* While a line is selected, a dashed outline shows the empty space its replacement can grow into. */}
+    {tool === 'edit' && (() => { const region = regions.find(r => r.id === selected && !r.unsupported && r.space); return region?.space && <div className="growth-space" aria-hidden="true" style={regionStyle(region.space, image)}/> })()}
     <div className={`text-regions ${showRegions && tool === 'edit' ? 'show-regions' : ''} ${tool !== 'edit' ? 'regions-inactive' : ''}`} role="group" aria-label="Existing PDF text" hidden={tool !== 'edit'}>
       {regions.map(region => {
         const edit = edits.find(edit => edit.regionId === region.id)

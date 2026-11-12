@@ -4,6 +4,8 @@ import type { OpenResult } from './workers/protocol'
 import type { AddedObject, AddedText, EditorTool, EditorView, ImageAssetInfo, ObjectBox, Point, Rect, RenderedPage, SessionCheckpoint, TextEdit, TextRegion, WorkingDocument } from './model/document'
 import type { PdfFeatures } from './model/utilities'
 import { textDraft } from './model/text-draft'
+import { toggleRange } from './model/fonts'
+import type { StyledValue } from './components/RichTextField'
 import { UtilityPanel } from './components/UtilityPanel'
 import type { UtilityTab } from './components/UtilityPanel'
 import type { InlineDraft } from './components/InlineTextEditor'
@@ -119,6 +121,8 @@ export default function App() {
   const [inlineSource,setInlineSource] = useState(false)
   const [inlineAdded,setInlineAdded] = useState<AddedText>()
   const selectedObject = view?.objects.find(object => object.id === objectSelection && object.page === page)
+  const selected = view?.text.regions.find(region => region.id === selection)
+  const applied = view?.edits.find(edit => edit.regionId === selection)
   const dirty = propertyDirty || !!inlineAdded && (selectedObject?.kind!=='text'||inlineAdded.text!==selectedObject.text)
   const unexported = needsExport(document,downloaded)
   useUnsavedChangesWarning(unexported || dirty)
@@ -372,6 +376,11 @@ export default function App() {
       const element = event.target as HTMLElement
       if (element.closest('input:not([type="checkbox"]):not([type="radio"]), textarea, select, [contenteditable="true"]')) return
       if (event.code === 'Space') { event.preventDefault(); setSpacePan(true); return }
+      // Cmd/Ctrl+B and I with nothing focused: restyle the selected line's draft, or the selected text box.
+      const styleKey = !busy && document && ['b','i'].includes(event.key.toLowerCase()) && (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey
+      const toggle = event.key.toLowerCase() === 'b' ? 'bold' : 'italic'
+      if (styleKey && tool === 'edit' && selected && !selected.unsupported) { event.preventDefault(); const base = draftText ?? textDraft(selected, applied); changeText({...base, spans: undefined, ...toggleRange(base.text, base.font, base.spans, 0, 0, toggle)}); return }
+      if (styleKey && !dirty && selectedObject?.kind === 'text') { event.preventDefault(); void putObject({...selectedObject, spans: undefined, ...toggleRange(selectedObject.text, selectedObject.font, selectedObject.spans, 0, 0, toggle)}); return }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z' && document && !busy) { event.preventDefault(); if (event.shiftKey ? view?.canRedo : view?.canUndo) void history(event.shiftKey ? 'redo' : 'undo') }
       else if (event.key === 'Escape') { setSpacePan(false); if (!dirty) { setSelection(undefined); setObjectSelection(undefined) } }
       else if (!busy && !dirty && selectedObject && ['Delete','Backspace'].includes(event.key)) { event.preventDefault(); void deleteObject() }
@@ -385,7 +394,7 @@ export default function App() {
     const blur = () => setSpacePan(false)
     window.addEventListener('keydown',listener); window.addEventListener('keyup',release); window.addEventListener('blur',blur)
     return () => {window.removeEventListener('keydown',listener);window.removeEventListener('keyup',release);window.removeEventListener('blur',blur)}
-  },[document,busy,view,dirty,page,zoom,selectedObject,utilitiesOpen])
+  },[document,busy,view,dirty,page,zoom,selectedObject,utilitiesOpen,tool,selected,draftText,applied])
 
   function clear() {
     generation.current++; inFlight.current = false
@@ -405,8 +414,6 @@ export default function App() {
     setDownloaded(exportCheckpoint(document))
   }
 
-  const selected = view?.text.regions.find(region => region.id === selection)
-  const applied = view?.edits.find(edit => edit.regionId === selection)
   const supported = view?.text.regions.filter(region => !region.unsupported).length ?? 0
   useEffect(()=>{setDraftText(selected?textDraft(selected,applied):undefined);if(tool==='edit')setDirty(false)},[selection,view?.revision])
 
@@ -454,7 +461,7 @@ export default function App() {
   let inlineDraft:InlineDraft|undefined
   if(inlineSource&&selected&&draftText)inlineDraft={...draftText,bounds:selected.bounds,direction:selected.direction,multiline:false,wrap:(selected.lines??1)>1}
   else if(inlineAdded)inlineDraft={...inlineAdded,bounds:[inlineAdded.box.x,inlineAdded.box.y,inlineAdded.box.x+inlineAdded.box.width,inlineAdded.box.y+inlineAdded.box.height],multiline:true}
-  function updateInline(value:string){if(inlineSource&&draftText)changeText({...draftText,text:value});else if(inlineAdded){setInlineAdded({...inlineAdded,text:value});setDirty(selectedObject?.kind!=='text'||value!==selectedObject.text)}}
+  function updateInline(value:StyledValue){if(inlineSource&&draftText)changeText({...draftText,...value});else if(inlineAdded){const next={...inlineAdded,...value};setInlineAdded(next);setDirty(selectedObject?.kind!=='text'||JSON.stringify([next.text,next.font,next.spans])!==JSON.stringify([selectedObject.text,selectedObject.font,selectedObject.spans]))}}
   function applyInline(){if(inlineSource&&draftText)void applyEdit(draftText);else if(inlineAdded)void putObject(inlineAdded)}
   function openTools(){if(dirty||busy)return;setInitialUtility(undefined);setUtilitiesOpen(true);setInlineSource(false);setInlineAdded(undefined)}
 

@@ -3,6 +3,26 @@ import { createSample } from '../engine/sample'
 import { EditorSession } from '../engine/editor-session'
 import type { Request, Response, Result } from './protocol'
 import { PdfUtilities } from '../engine/pdf-utilities'
+import { registerFontFile } from '../engine/fonts'
+import type { MatchedFont } from '../model/document'
+import carlitoRegular from '../assets/fonts/Carlito-Regular.ttf?url'
+import carlitoBold from '../assets/fonts/Carlito-Bold.ttf?url'
+import carlitoItalic from '../assets/fonts/Carlito-Italic.ttf?url'
+import carlitoBoldItalic from '../assets/fonts/Carlito-BoldItalic.ttf?url'
+import caladeaRegular from '../assets/fonts/Caladea-Regular.ttf?url'
+import caladeaBold from '../assets/fonts/Caladea-Bold.ttf?url'
+import caladeaItalic from '../assets/fonts/Caladea-Italic.ttf?url'
+import caladeaBoldItalic from '../assets/fonts/Caladea-BoldItalic.ttf?url'
+import latinModernRegular from '../assets/fonts/lmroman10-regular.otf?url'
+import latinModernBold from '../assets/fonts/lmroman10-bold.otf?url'
+import latinModernItalic from '../assets/fonts/lmroman10-italic.otf?url'
+import latinModernBoldItalic from '../assets/fonts/lmroman10-bolditalic.otf?url'
+
+const matchedFontUrls: Record<MatchedFont, string> = {
+  'Carlito-Regular': carlitoRegular, 'Carlito-Bold': carlitoBold, 'Carlito-Italic': carlitoItalic, 'Carlito-BoldItalic': carlitoBoldItalic,
+  'Caladea-Regular': caladeaRegular, 'Caladea-Bold': caladeaBold, 'Caladea-Italic': caladeaItalic, 'Caladea-BoldItalic': caladeaBoldItalic,
+  'LatinModern-Regular': latinModernRegular, 'LatinModern-Bold': latinModernBold, 'LatinModern-Italic': latinModernItalic, 'LatinModern-BoldItalic': latinModernBoldItalic,
+}
 
 let session: EditorSession | undefined
 let activeId = 0, quiet = false
@@ -65,6 +85,12 @@ self.onmessage = (event: MessageEvent<Request>) => {
     self.postMessage(response)
   }
 }
+
+// Bundled matched fonts are part of the offline files. One that fails to load only makes that font unavailable
+// (edits then say so and offer the others); it never blocks the editor.
+await Promise.all(Object.entries(matchedFontUrls).map(async ([name, url]) => {
+  try { const response = await fetch(url); if (response.ok) registerFontFile(name as MatchedFont, new Uint8Array(await response.arrayBuffer())) } catch { /* unavailable */ }
+}))
 
 // WASM initialization uses top-level await. Queue commands until this handshake.
 self.postMessage({ ready: true })

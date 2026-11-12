@@ -65,7 +65,7 @@ test('graphics drawn on top of the text still block it',()=>{
 
 test('the closest standard font keeps family, weight and slant',async()=>{
  const {closestFont}=await import('../src/model/fonts')
- for(const [name,expected] of [['ABCDEF+Arial-BoldMT','Helvetica-Bold'],['Helvetica','Helvetica'],['TimesNewRomanPS-ItalicMT','Times-Italic'],['Georgia-BoldItalic','Times-BoldItalic'],['SourceSansPro-Semibold','Helvetica-Bold'],['NotoSerif','Times-Roman'],['Consolas','Courier'],['Calibri-Light','Helvetica']] as const) assert.equal(closestFont(name),expected,name)
+ for(const [name,expected] of [['ABCDEF+Arial-BoldMT','Helvetica-Bold'],['Helvetica','Helvetica'],['TimesNewRomanPS-ItalicMT','Times-Italic'],['Georgia-BoldItalic','Times-BoldItalic'],['SourceSansPro-Semibold','Helvetica-Bold'],['NotoSerif','Times-Roman'],['Consolas','Courier'],['Calibri-Light','Carlito-Regular']] as const) assert.equal(closestFont(name),expected,name)
 })
 
 test('a bold replacement font compiles, verifies and is reported back as bold',()=>{
@@ -97,7 +97,7 @@ test('a whole paragraph is replaced, wrapped to its width and original line spac
   assert.ok(after[0].lines!>=2);assert.ok(Math.abs(after[0].lineGap!-15)<0.1)
   assert.doesNotMatch(inspect(doc).text,/fox|farmer|barn/)
  }finally{doc.destroy()}
- assert.throws(()=>compileTextEdits(bytes,[{type:'replace-text',page:0,regionId:region.id,text:'word '.repeat(80).trim(),font:'Helvetica',size:12,color:'#000000'}]),/room for 3/)
+ assert.throws(()=>compileTextEdits(bytes,[{type:'replace-text',page:0,regionId:region.id,text:'word '.repeat(2000).trim(),font:'Helvetica',size:12,color:'#000000'}]),/room for \d+/)
 })
 
 test('lines are not merged across a change of style, a big gap, or an overlapping graphic',()=>{

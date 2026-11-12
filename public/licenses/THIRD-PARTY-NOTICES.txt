@@ -33,6 +33,16 @@ Copyright The Dancing Script Project Authors; copyright The Great Vibes Pro Proj
 Bundled unmodified from https://github.com/google/fonts; subsets are embedded in signed PDFs.
 Licenses: DancingScript-OFL.txt, GreatVibes-OFL.txt
 
+Carlito and Caladea fonts (replacement text matched to Calibri and Cambria) — SIL Open Font License 1.1.
+Copyright 2013 The Carlito Project Authors; copyright 2012 The Caladea Project Authors.
+Bundled unmodified from https://github.com/google/fonts; subsets are embedded in edited PDFs.
+Licenses: Carlito-OFL.txt, Caladea-OFL.txt
+
+Latin Modern Roman fonts (replacement text matched to LaTeX's Computer Modern) — GUST Font License (LPPL 1.3c).
+Copyright 2003-2009 B. Jackowski and J. M. Nowacki (on behalf of TeX users groups).
+Bundled unmodified (lmroman10-regular, -bold, -italic, -bolditalic .otf) from https://www.gust.org.pl/projects/e-foundry/latin-modern; subsets are embedded in edited PDFs.
+License: LatinModern-GUST-FONT-LICENSE.txt
+
 Vite and bundled runtime helpers
 MIT; its license file also includes upstream third-party notices.
 License: vite-LICENSE.txt

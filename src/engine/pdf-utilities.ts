@@ -9,6 +9,7 @@ import { boundedScale } from '../geometry/page'
 import { compressLevels, compressSaveOptions, findOnPage, recompressImages, redactText, redactionPattern } from './rewrite'
 
 import { REPLACEMENT_FONTS } from './text-edit'
+import { subsetFont } from './fonts'
 import { isHandwriting } from '../model/fonts'
 import { fitSize, fits } from '../model/signature-fit'
 import { pdfLiteral as literal, supportedText, unsupportedMessage, winAnsiCode } from '../model/text-encoding'
@@ -17,13 +18,6 @@ function save(doc:mupdf.PDFDocument,options='garbage=4,compress') { const buffer
 
 // Embeds only the glyphs `text` uses: subset in a scratch document, then copy that one font
 // across. Subsetting the real document would also cut down the source PDF's own fonts.
-function subsetFont(doc:mupdf.PDFDocument,font:mupdf.Font,text:string){
-  const scratch=new mupdf.PDFDocument()
-  try{
-    const ref=scratch.addSimpleFont(font),page=scratch.addPage([0,0,10,10],0,{Font:{F:ref}},`BT /F 1 Tf ${literal(text)} Tj ET`)
-    try{scratch.insertPage(-1,page);scratch.subsetFonts();return doc.graftObject(ref)}finally{page.destroy();ref.destroy()}
-  }finally{scratch.destroy()}
-}
 function pageText(doc:mupdf.PDFDocument,index:number){
   const page=doc.loadPage(index)
   try{const text=page.toStructuredText('');try{return text.asText().trim()}finally{text.destroy()}}finally{page.destroy()}
