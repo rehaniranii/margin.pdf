@@ -15,7 +15,7 @@ async page => {
   ['form.pdf','Original editable line','editable'],
   ['synthetic-signature.pdf','Original editable line','editable'],
   ['scanned.pdf','','scanned'],
-  ['overlapping-link.pdf','Original editable line','restricted'],
+  ['overlapping-link.pdf','Original editable line','editable'],
   ['unusual-transform.pdf','Skewed source','restricted'],
   ['large-250-pages.pdf','Original editable line','large'],
   ['oversized-page.pdf','','oversized']

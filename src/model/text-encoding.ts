@@ -24,3 +24,6 @@ export function pdfLiteral(value: string) {
 }
 
 export const unsupportedMessage = 'Use Latin letters, including accents like é ü ñ ç ø, numbers and punctuation. Other scripts and emoji are not supported yet.'
+
+// Link targets we read and write: web pages, email and phone. Never javascript: or file: actions.
+export const webAddress = (value: string) => value.length <= 2000 && /^(https?:\/\/[^\s]+|mailto:[^\s]+|tel:[+\d\-(). ]+)$/i.test(value)

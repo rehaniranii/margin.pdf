@@ -1,7 +1,7 @@
 import type { TextEdit, TextRegion } from '../model/document'
 import { FontSelect } from './FontSelect'
 import { textDraft } from '../model/text-draft'
-import { supportedText, unsupportedMessage } from '../model/text-encoding'
+import { supportedText, unsupportedMessage, webAddress } from '../model/text-encoding'
 
 type Props = { region?: TextRegion; applied?: TextEdit; draft?: TextEdit; busy: boolean; onApply: (edit: TextEdit) => void; onChange: (edit: TextEdit) => void; onInline: () => void }
 
@@ -10,6 +10,7 @@ export function TextProperties({ region, applied, draft: supplied, busy, onApply
   const draft = supplied ?? baseline ?? {type:'replace-text' as const,page:0,regionId:'',text:'',font:'Helvetica' as const,size:12,color:'#000000'}
   const dirty = JSON.stringify(draft) !== JSON.stringify(baseline)
   const unsupportedCharacters = !supportedText(draft.text)
+  const badLink = draft.link !== undefined && !webAddress(draft.link)
   const update = (change: Partial<TextEdit>) => onChange({ ...draft, ...change })
   function discard() { if(baseline)onChange(baseline) }
   // Visible labels are short; aria-labels keep the precise names (used by screen readers and release checks).
@@ -23,13 +24,15 @@ export function TextProperties({ region, applied, draft: supplied, busy, onApply
       <label htmlFor="replacement">{(region.lines ?? 1) > 1 ? `Paragraph · ${region.lines} lines` : 'Text'}</label>
       <textarea id="replacement" aria-label="Replacement text" rows={(region.lines ?? 1) > 1 ? 6 : 2} value={draft.text} onChange={event => update({ text: event.target.value })} disabled={busy} spellCheck={false} aria-describedby="text-support fit-policy"/>
       {unsupportedCharacters && <p className="inline-error" role="status">This replacement contains unsupported characters. {unsupportedMessage}</p>}
+      {region.link && <div className="style-row link-row"><div className="field"><label htmlFor="link-target">Link goes to</label><input id="link-target" aria-label="Link address" type="url" value={draft.link ?? ''} onChange={event => update({ link: event.target.value.trim() })} disabled={busy} spellCheck={false} aria-invalid={badLink}/></div></div>}
+      {badLink && <p className="inline-error" role="status">Enter a link that starts with https://, http://, mailto: or tel:.</p>}
       <div className="style-row">
         <div className="field grow"><label htmlFor="font">Font</label><FontSelect id="font" label="Replacement font" value={draft.font} disabled={busy} onChange={font => update({ font })}/></div>
-        <div className="field size"><label htmlFor="font-size">Size</label><input id="font-size" aria-label="Size (pt)" type="number" min="4" max="144" step="0.5" value={Number.isFinite(draft.size) ? draft.size : ''} disabled={busy} onChange={event => update({ size: event.target.valueAsNumber })}/></div>
+        <div className="field size"><label htmlFor="font-size">Size</label><input id="font-size" aria-label="Size (pt)" type="number" min="4" max="144" step="any" value={Number.isFinite(draft.size) ? draft.size : ''} disabled={busy} onChange={event => update({ size: event.target.valueAsNumber })}/></div>
         <div className="field swatch"><label htmlFor="text-color">Color</label><input id="text-color" aria-label="Text color" type="color" value={draft.color} onChange={event => update({ color: event.target.value })} disabled={busy}/></div>
       </div>
       <div className="form-actions">
-        <button className="primary" type="submit" disabled={busy || !dirty || unsupportedCharacters || !Number.isFinite(draft.size)}>Apply changes</button>
+        <button className="primary" type="submit" disabled={busy || !dirty || unsupportedCharacters || badLink || !Number.isFinite(draft.size)}>Apply changes</button>
         {dirty && <button className="text-button" type="button" onClick={discard} disabled={busy}>Discard</button>}
       </div>
       <p className="form-status" role="status">{dirty ? 'Not applied yet.' : applied ? 'Applied. The page shows the edited PDF.' : (region.lines ?? 1) > 1 ? `Your text wraps to fit up to ${region.lines} lines.` : ''}</p>

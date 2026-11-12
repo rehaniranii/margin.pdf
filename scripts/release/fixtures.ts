@@ -34,7 +34,7 @@ export function releaseFixtures():Record<string,ReleaseFixture>{return {
  'embedded-subset.pdf':{bytes:embeddedFont(),expected:'editable',line:'Original embedded line'},
  'scanned.pdf':{bytes:scanned(),expected:'scanned'},
  'annotation.pdf':{bytes:annotation(),expected:'editable',line:'Original editable line'},
- 'overlapping-link.pdf':{bytes:fixture({annotation:'Link'}),expected:'restricted',line:'Original editable line'},
+ 'overlapping-link.pdf':{bytes:fixture({annotation:'Link'}),expected:'editable',line:'Original editable line'},
  'form.pdf':{bytes:forms(),expected:'editable',line:'Original editable line'},
  'synthetic-signature.pdf':{bytes:signed(),expected:'editable',line:'Original editable line'},
  'unusual-transform.pdf':{bytes:fixture({content:'BT /F 20 Tf 1 .2 .3 1 80 360 Tm (Skewed source) Tj ET'}),expected:'restricted'},

@@ -1,9 +1,9 @@
 import * as mupdf from 'mupdf'
 import type { Rect, ReplacementFont, TextEdit } from '../model/document'
-import { contains, intersects, union } from '../geometry/affine'
+import { contains, coverage, overlaps, samePoint, union } from '../geometry/affine'
 import { openPdf } from './mupdf-adapter'
-import { analyzePage, assertGlyphs, paintedGlyphs, safeBackdrop } from './text-analysis'
-import { pdfLiteral as literal, supportedText, unsupportedMessage } from '../model/text-encoding'
+import { analyzePage, assertGlyphs, glyphDot, paintedGlyphs, safeBackdrop } from './text-analysis'
+import { pdfLiteral as literal, supportedText, unsupportedMessage, webAddress } from '../model/text-encoding'
 import type { Analysis, AnalyzedRegion, Glyph } from './text-analysis'
 
 export const REPLACEMENT_FONTS: readonly ReplacementFont[] = ['Helvetica', 'Helvetica-Bold', 'Helvetica-Oblique', 'Helvetica-BoldOblique', 'Times-Roman', 'Times-Bold', 'Times-Italic', 'Times-BoldItalic', 'Courier', 'Courier-Bold', 'Courier-Oblique', 'Courier-BoldOblique']
@@ -23,6 +23,7 @@ export function wrap(value: string, width: number, measure: (text: string) => nu
   return lines
 }
 const number = (value: number) => Number(value.toFixed(6)).toString()
+const near = (a: number, b: number) => Math.abs(a - b) < 0.01
 
 export function prepareEdit(analysis: Analysis, edit: TextEdit, fontKey = 'F'): PreparedEdit {
   const region = analysis.regions.find(line => line.id === edit.regionId)
@@ -33,8 +34,9 @@ export function prepareEdit(analysis: Analysis, edit: TextEdit, fontKey = 'F'): 
   if (!/^#[\da-f]{6}$/i.test(edit.color)) throw new Error('Choose a valid text color.')
   if (!supportedText(edit.text)) throw new Error(`${unsupportedMessage} Line breaks are not supported. No changes were applied.`)
   if (edit.text && !edit.text.trim()) throw new Error('Use an empty value to remove the line, or enter visible text.')
+  if (edit.link !== undefined && (!region.link || !webAddress(edit.link))) throw new Error(region.link ? 'Enter a link that starts with https://, http://, mailto: or tel:.' : 'This text has no link to change.')
   const font = new mupdf.Font(edit.font)
-  const text = new mupdf.Text()
+  let text = new mupdf.Text()
   try {
     const [ux, uy] = region.direction
     const [x, y] = region.origin
@@ -42,30 +44,60 @@ export function prepareEdit(analysis: Analysis, edit: TextEdit, fontKey = 'F'): 
     const measure = (value: string) => [...value].reduce((sum, c) => sum + font.advanceGlyph(font.encodeCharacter(c)) * edit.size, 0)
     // A paragraph wraps word by word into at most its original number of lines, at its original spacing.
     const maxLines = region.lines ?? 1, gap = region.lineGap ?? edit.size * 1.2
-    const lines = maxLines > 1 ? wrap(edit.text, capacity, measure) : [edit.text]
-    if (lines.length > maxLines) throw new Error(`The replacement needs ${lines.length} lines but this paragraph has room for ${maxLines}. Shorten it or reduce the font size. The layout has not changed.`)
-    let widest = 0
-    lines.forEach((line, i) => {
-      const lx = x - uy * gap * i, ly = y + ux * gap * i
-      const end = text.showString(font, [ux * edit.size, uy * edit.size, uy * edit.size, -ux * edit.size, lx, ly], line)
-      widest = Math.max(widest, Math.hypot(end[4] - lx, end[5] - ly))
-    })
-    const ink = edit.text ? text.getBounds(null as unknown as mupdf.StrokeState, mupdf.Matrix.identity) : region.bounds
-    if (widest > capacity + 0.05 || (edit.text && !contains(region.bounds, ink, 1))) throw new Error(`The replacement does not fit the original ${maxLines > 1 ? 'paragraph' : 'line’s width or height'}. Shorten it or reduce the font size. The layout has not changed.`)
-    if (!contains(analysis.view.bounds, ink)) throw new Error('The replacement would extend beyond the visible page. Reduce its size.')
+    const removal = region.removal ?? region.bounds
+    // Vertical room is the original line band (1 em above each baseline, 0.35 em below the last), not the old font's exact letter boxes:
+    // fonts with short descenders (e.g. LaTeX's Computer Modern) would otherwise reject identical text. The original ink counts as
+    // room too: ink boxes are padded and may reach past the character boxes.
+    const down: [number, number] = [-uy, ux], at = (k: number): Rect => [x + down[0] * k, y + down[1] * k, x + down[0] * k, y + down[1] * k]
+    const room = union(union(union(region.bounds, removal), at(-region.fontSize)), at(gap * (maxLines - 1) + region.fontSize * 0.35))
     const selected = new Set(region.glyphIndices)
     const selectedGlyphs = region.glyphIndices.map(index => analysis.glyphs[index])
-    if (selectedGlyphs.some(glyph => glyph.clips.some(clip => !contains(clip, ink)))) throw new Error('The replacement would cross the original clipping boundary. Reduce its size.')
+    // Text clipped by rectangles (text boxes, table cells) is replaced inside the same rectangles, so it is cut off exactly as before.
+    // Each glyph's clip is the intersection of its rectangles; the line's clip is the union of those (no clip if any glyph is unclipped).
+    const clipped = selectedGlyphs.every(glyph => glyph.clips.length)
+    const clips = clipped ? selectedGlyphs.map(glyph => glyph.clips.reduce((a, b) => [Math.max(a[0], b[0]), Math.max(a[1], b[1]), Math.min(a[2], b[2]), Math.min(a[3], b[3])])).filter((clip, i, all) => all.findIndex(other => other.every((v, k) => near(v, clip[k]))) === i) : []
     const textOrder = selectedGlyphs.reduce((order, glyph) => Math.min(order, glyph.order), Infinity)
-    const removal = region.removal ?? region.bounds
-    const footprint = union(ink, removal)
-    if (analysis.graphics.some(graphic => intersects(graphic.bounds, footprint) && !safeBackdrop(graphic, footprint, textOrder))) throw new Error('The replacement would touch a neighboring graphic. Reduce its size or use a shorter line.')
-    if (analysis.glyphs.some((glyph, index) => !selected.has(index) && intersects(footprint, glyph.bounds))) throw new Error('The replacement would touch neighboring text. Reduce its size or use a shorter line.')
+    // Neighbours the original text already touched (overhanging italics, tightly kerned runs) are not new collisions.
+    const neighbours = analysis.glyphs.filter((glyph, index) => !selected.has(index) && !overlaps(removal, glyph.bounds))
+    const graphics = analysis.graphics.filter(graphic => !overlaps(removal, graphic.bounds))
+    const placementError = (ink: Rect) => {
+      if (edit.text && !contains(room, ink, 1)) return 'The replacement does not fit the original line’s space. Reduce the font size. The layout has not changed.'
+      if (!contains(analysis.view.bounds, ink)) return 'The replacement would extend beyond the visible page. Reduce its size.'
+      // Spilling past the clip is fine where the original already did: that part is hidden the same way.
+      if (clipped && !contains(union(clips.reduce(union), removal), ink, 2)) return 'The replacement would extend past the original text box and be cut off. Shorten it or reduce its size.'
+      const footprint = union(ink, removal)
+      if (graphics.some(graphic => overlaps(graphic.bounds, footprint) && !safeBackdrop(graphic, footprint, textOrder) && coverage(graphic.bounds, footprint) >= 0.15)) return 'The replacement would touch a neighboring graphic. Reduce its size or use a shorter line.'
+      if (neighbours.some(glyph => overlaps(footprint, glyph.bounds))) return 'The replacement would touch neighboring text. Reduce its size or use a shorter line.'
+      return ''
+    }
+    // The standard fonts often run wider than the original (e.g. Times vs LaTeX's Computer Modern), so identical text would
+    // not fit or would touch the next word. Narrow the letters, up to 25%, before giving up; height and position are unchanged.
+    const fitError = `The replacement does not fit the original ${maxLines > 1 ? 'paragraph' : 'line’s width'}, even with narrowed letters. Shorten it or reduce the font size. The layout has not changed.`
+    let lines: string[] = [], squeeze = 1, problem = '', ink: Rect = region.bounds
+    for (squeeze of [1, 0.97, 0.94, 0.91, 0.88, 0.85, 0.82, 0.79, 0.75]) {
+      text.destroy(); text = new mupdf.Text()
+      try { lines = maxLines > 1 ? wrap(edit.text, capacity, value => measure(value) * squeeze) : [edit.text] } catch (error) { problem = (error as Error).message; continue }
+      if (lines.length > maxLines) { problem = `The replacement needs ${lines.length} lines but this paragraph has room for ${maxLines}. Shorten it or reduce the font size. The layout has not changed.`; continue }
+      let widest = 0
+      lines.forEach((line, i) => {
+        const lx = x - uy * gap * i, ly = y + ux * gap * i
+        const end = text.showString(font, [ux * edit.size * squeeze, uy * edit.size * squeeze, uy * edit.size, -ux * edit.size, lx, ly], line)
+        widest = Math.max(widest, Math.hypot(end[4] - lx, end[5] - ly))
+      })
+      ink = edit.text ? text.getBounds(null as unknown as mupdf.StrokeState, mupdf.Matrix.identity) : region.bounds
+      problem = widest > capacity + 0.05 ? fitError : placementError(ink)
+      if (!problem) break
+    }
+    if (problem) throw new Error(problem)
     const glyphs: Pick<Glyph, 'unicode' | 'origin'>[] = []
     text.walk({ showGlyph(_font, matrix, _glyph, unicode) { glyphs.push({ unicode, origin: [matrix[4], matrix[5]] }) } })
     const color = [1, 3, 5].map(offset => parseInt(edit.color.slice(offset, offset + 2), 16) / 255)
-    const shows = lines.map((line, i) => `${[ux, uy, uy, -ux, x - uy * gap * i, y + ux * gap * i].map(number).join(' ')} Tm ${literal(line)} Tj`).join(' ')
-    return { edit, region, ink, glyphs, lines, command: `q BT /${fontKey} ${number(edit.size)} Tf ${color.map(number).join(' ')} rg ${shows} ET Q` }
+    const shows = lines.map((line, i) => `${[ux * squeeze, uy * squeeze, uy, -ux, x - uy * gap * i, y + ux * gap * i].map(number).join(' ')} Tm ${literal(line)} Tj`).join(' ')
+    const clip = clips.length ? `${clips.map(([x0, y0, x1, y1]) => [x0, y0, x1 - x0, y1 - y0].map(number).join(' ') + ' re').join(' ')} W n ` : ''
+    // Faux-bold originals (filled and outlined) keep their outline: same width and colour, render mode 2.
+    const stroke = selectedGlyphs.every(glyph => glyph.stroke) ? selectedGlyphs[0].stroke : undefined
+    const outline = stroke ? `2 Tr ${number(stroke.width)} w ${[1, 3, 5].map(offset => number(parseInt(stroke.color.slice(offset, offset + 2), 16) / 255)).join(' ')} RG ` : ''
+    return { edit, region, ink, glyphs, lines, command: `q ${clip}BT /${fontKey} ${number(edit.size)} Tf ${color.map(number).join(' ')} rg ${outline}${shows} ET Q` }
   } finally { text.destroy(); font.destroy() }
 }
 
@@ -124,7 +156,7 @@ export function compileTextEdits(source: Uint8Array, edits: TextEdit[], analyze?
       const analysis = analyze ? analyze(index) : analyzePage(doc, index)
       const prepared = pageEdits.map((edit, i) => prepareEdit(analysis, edit, `F${i}`))
       for (let i = 0; i < prepared.length; i++) for (let j = i + 1; j < prepared.length; j++) {
-        if (intersects(union(prepared[i].ink, prepared[i].region.removal ?? prepared[i].region.bounds), union(prepared[j].ink, prepared[j].region.removal ?? prepared[j].region.bounds))) throw new Error('These edits overlap. No changes were applied.')
+        if (overlaps(union(prepared[i].ink, prepared[i].region.removal ?? prepared[i].region.bounds), union(prepared[j].ink, prepared[j].region.removal ?? prepared[j].region.bounds))) throw new Error('These edits overlap. No changes were applied.')
       }
       const removed = new Set(prepared.flatMap(p => p.region.glyphIndices))
       // MuPDF's redaction removes glyphs by their character box, so a space in a neighbouring run whose
@@ -136,14 +168,28 @@ export function compileTextEdits(source: Uint8Array, edits: TextEdit[], analyze?
       const remaining = analysis.glyphs.filter((glyph, i) => !removed.has(i) && visible(glyph))
       const page = doc.loadPage(index)
       try {
-        for (const { region } of prepared) {
+        const linksBefore = page.getLinks().map(link => { try { return { bounds: link.getBounds(), uri: link.getURI() } } finally { link.destroy() } })
+        // Redact a tiny point inside each replaced glyph rather than the line's box: exactly those glyphs go, and
+        // neighbouring text whose box grazes the line stays.
+        for (const { region } of prepared) for (const i of region.glyphIndices) {
           const annotation = page.createAnnotation('Redact')
-          try { annotation.setRect(region.removal ?? region.bounds) } finally { annotation.destroy() }
+          try { annotation.setRect(glyphDot(analysis.glyphs[i])) } finally { annotation.destroy() }
         }
         page.applyRedactions(false, mupdf.PDFPage.REDACT_IMAGE_NONE, mupdf.PDFPage.REDACT_LINE_ART_NONE, mupdf.PDFPage.REDACT_TEXT_REMOVE)
+        // Redaction deletes links it touches. Links that move with an edit are recreated below; put every other one back as it was.
+        const sameRect = (a: Rect, b: Rect) => samePoint([a[0], a[1]], [b[0], b[1]], 0.5) && samePoint([a[2], a[3]], [b[2], b[3]], 0.5)
+        const moving = prepared.flatMap(p => p.region.linkBounds ? [p.region.linkBounds] : [])
+        const linksAfter = page.getLinks()
+        try {
+          const kept: { bounds: Rect; uri: string }[] = []
+          for (const link of linksAfter) { const bounds = link.getBounds(); if (moving.some(rect => sameRect(rect, bounds))) page.deleteLink(link); else kept.push({ bounds, uri: link.getURI() }) }
+          for (const link of linksBefore) if (!moving.some(rect => sameRect(rect, link.bounds)) && !kept.some(other => other.uri === link.uri && sameRect(other.bounds, link.bounds))) page.createLink(link.bounds, link.uri).destroy()
+        } finally { linksAfter.forEach(link => link.destroy()) }
         // Verify the removal in isolation, even when replacement == original wording.
         assertGlyphs(paintedGlyphs(page).glyphs.filter(visible), remaining)
         insertReplacements(doc, page, analysis, prepared)
+        // Redaction deleted the link with its text; put it back around the new text. Removing the text removes the link.
+        for (const { edit, region, ink } of prepared) if (region.link && edit.text) page.createLink(ink, edit.link ?? region.link).destroy()
         expected.set(index, [...remaining, ...prepared.flatMap(p => p.glyphs).filter(visible)])
         searchable.set(index, prepared.flatMap(p => p.lines.map(line => line.trim()).filter(Boolean)))
       } finally { page.destroy() }

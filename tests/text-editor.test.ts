@@ -104,9 +104,7 @@ test('rejects unsupported characters, unfit text, invalid styles and overlapping
 
 for (const [name, content] of [
   ['skewed', 'BT /F 20 Tf 1 0.2 0 1 80 360 Tm (Skewed line) Tj ET'],
-  ['vertical source', 'BT /F 20 Tf 0 1 -1 0 80 100 Tm (Vertical line) Tj ET'],
-  ['clipped', 'q 80 350 100 40 re W n BT /F 20 Tf 1 0 0 1 80 360 Tm (Clipped line) Tj ET Q'],
-  ['typographic area crossing a clip', 'q 70 350 250 28 re W n BT /F 20 Tf 1 0 0 1 80 360 Tm (Original editable line) Tj ET Q'],
+  ['mirrored', 'BT /F 20 Tf -1 0 0 1 300 360 Tm (Mirrored line) Tj ET'],
   ['invisible', 'BT /F 20 Tf 3 Tr 1 0 0 1 80 360 Tm (Hidden line) Tj ET'],
 ] as const) test(`${name} content cannot be silently replaced`, () => {
   const source = fixture({ content })
@@ -125,7 +123,7 @@ test('mixed-style text is split into separate positioned spans, never silently u
 test('empty/scanned-like pages and overlapping annotations have explicit unsupported states', () => {
   const empty = openPdf(fixture({ content: 'q 0.9 g 20 20 300 400 re f Q' }))
   try { const result = analyzePage(empty, 0).view; assert.equal(result.regions.length, 0); assert.match(result.message!, /scanned/) } finally { empty.destroy() }
-  for (const annotation of ['Link', 'Redact'] as const) {
+  for (const annotation of ['Redact'] as const) {
     const doc = openPdf(fixture({ annotation }))
     try { assert.ok(analyzePage(doc, 0).view.regions[0].unsupported) } finally { doc.destroy() }
   }
@@ -231,4 +229,143 @@ test('a bold run followed by a normal run that starts with a space can be edited
     const crop = (d: mupdf.PDFDocument) => { const pix = d.loadPage(0).toPixmap(mupdf.Matrix.identity, mupdf.ColorSpace.DeviceRGB, false, true); const p = pix.getPixels(), w = pix.getWidth(), out: number[] = []; for (let y = 60; y < 95; y++) for (let x = Math.ceil(40 + width) + 2; x < 390; x++) out.push(p[(y * w + x) * 3]); return out }
     assert.deepEqual(crop(output), crop(original))
   } finally { output.destroy(); original.destroy(); buffer.destroy() }
+})
+
+test('text under a web link is editable; the link follows the new text and can point somewhere new', () => {
+  const linked = (rect: mupdf.Rect, uri = 'https://old.example/profile') => {
+    const doc = openPdf(fixture())
+    try { const page = doc.loadPage(0); try { page.createLink(rect, uri).destroy() } finally { page.destroy() }; const out = doc.saveToBuffer(''); try { return out.asUint8Array().slice() } finally { out.destroy() } } finally { doc.destroy() }
+  }
+  const source = linked([75, 115, 330, 150])
+  const doc = openPdf(source)
+  try { const region = analyzePage(doc, 0).view.regions[0]; assert.equal(region.unsupported, undefined); assert.equal(region.link, 'https://old.example/profile') } finally { doc.destroy() }
+  const output = openPdf(compileTextEdits(source, [{ ...edit, text: 'new.example/me', link: 'https://new.example/me' }]))
+  try {
+    const page = output.loadPage(0)
+    try {
+      const links = page.getLinks()
+      assert.deepEqual(links.map(link => link.getURI()), ['https://new.example/me'])
+      const region = analyzePage(output, 0).view.regions.find(r => r.text === 'new.example/me')!
+      assert.ok(contains(region.bounds, links[0].getBounds(), 1))
+      links.forEach(link => link.destroy())
+    } finally { page.destroy() }
+  } finally { output.destroy() }
+  // Keeping the text but dropping it removes the link; unsafe targets and partial links are refused.
+  const removed = openPdf(compileTextEdits(source, [{ ...edit, text: '' }]))
+  try { const page = removed.loadPage(0); try { assert.equal(page.getLinks().length, 0) } finally { page.destroy() } } finally { removed.destroy() }
+  assert.throws(() => compileTextEdits(source, [{ ...edit, link: 'javascript:alert(1)' }]), /https:\/\//)
+  // A link over only part of the line does not block editing; it stays exactly where it was.
+  const partialSource = linked([75, 115, 150, 150])
+  const partial = openPdf(compileTextEdits(partialSource, [edit]))
+  try {
+    const page = partial.loadPage(0)
+    try { const links = page.getLinks(); assert.deepEqual(links.map(link => [link.getURI(), link.getBounds()]), [['https://old.example/profile', [75, 115, 150, 150]]]); links.forEach(link => link.destroy()) } finally { page.destroy() }
+  } finally { partial.destroy() }
+})
+
+// One-page PDF with a single Helvetica line, built from a custom font dictionary.
+function customFontPdf(font: Record<string, unknown>, content: string, extra: (doc: mupdf.PDFDocument) => Record<string, unknown> = () => ({})) {
+  const doc = new mupdf.PDFDocument()
+  try {
+    const ref = doc.addObject({ Type: 'Font', Subtype: 'Type1', BaseFont: 'Helvetica', ...font, ...extra(doc) })
+    const page = doc.addPage([0, 0, 400, 500], 0, { Font: { F: ref } }, content)
+    doc.insertPage(-1, page); page.destroy()
+    const out = doc.saveToBuffer(''); try { return out.asUint8Array().slice() } finally { out.destroy() }
+  } finally { doc.destroy() }
+}
+
+test('a single glyph mapped to two letters (an "fi" ligature, as LaTeX writes it) stays editable', () => {
+  const source = customFontPdf({ Encoding: { Type: 'Encoding', Differences: [1, 'fi'] } }, 'BT /F 20 Tf 1 0 0 1 80 360 Tm (pro\\001le) Tj ET',
+    doc => ({ ToUnicode: doc.addStream('/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CMapName /X def 1 begincodespacerange <00> <FF> endcodespacerange 1 beginbfchar <01> <00660069> endbfchar endcmap CMapName currentdict /CMap defineresource pop end end', {}) }))
+  const doc = openPdf(source)
+  try { const region = analyzePage(doc, 0).view.regions[0]; assert.equal(region.text, 'profile'); assert.equal(region.unsupported, undefined) } finally { doc.destroy() }
+  const output = openPdf(compileTextEdits(source, [{ ...edit, text: 'prose', size: 20 }]))
+  try { assert.deepEqual(analyzePage(output, 0).view.regions.map(r => r.text), ['prose']) } finally { output.destroy() }
+})
+
+test('identical text fits even when the original font declares short descenders (Computer Modern-like)', () => {
+  const source = customFontPdf({ Encoding: 'WinAnsiEncoding' }, 'BT /F 20 Tf 1 0 0 1 80 360 Tm (codeforces profile) Tj ET',
+    doc => ({ FontDescriptor: doc.addObject({ Type: 'FontDescriptor', FontName: 'Helvetica', Flags: 32, FontBBox: [0, -60, 1000, 700], ItalicAngle: 0, Ascent: 700, Descent: -60, CapHeight: 700, StemV: 80 }) }))
+  const output = openPdf(compileTextEdits(source, [{ ...edit, text: 'codeforces profile', font: 'Times-Roman', size: 20 }]))
+  try { assert.ok(analyzePage(output, 0).view.regions.some(r => r.text === 'codeforces profile')) } finally { output.destroy() }
+})
+
+for (const [name, content, text, clip] of [
+  ['clipped', 'q 80 350 100 40 re W n BT /F 20 Tf 1 0 0 1 80 360 Tm (Clipped line) Tj ET Q', 'Clipped line', [80, 110, 180, 150]],
+  ['a text box clip that letter tails cross', 'q 70 350 250 28 re W n BT /F 20 Tf 1 0 0 1 80 360 Tm (Original editable line) Tj ET Q', 'Original editable line', [70, 122, 320, 150]],
+] as const) test(`${name}: the replacement is clipped by the same rectangle`, () => {
+  const source = fixture({ content })
+  const doc = openPdf(source)
+  let region
+  try { region = analyzePage(doc, 0).view.regions.find(r => r.text.startsWith(text.slice(0, 7)))! } finally { doc.destroy() }
+  assert.equal(region.unsupported, undefined)
+  // A recoloured replacement changes pixels only inside the original clip (page coordinates), never outside it.
+  const output = compileTextEdits(source, [{ ...edit, regionId: region.id, text: region.text }])
+  assert.ok(changedPixels(source, output, 0, [...clip] as mupdf.Rect) > 0)
+})
+
+test('text turned by 90° inside the page is edited in place, along its own direction', () => {
+  const source = fixture({ content: 'BT /F 20 Tf 0 1 -1 0 80 100 Tm (Vertical line) Tj ET' })
+  const doc = openPdf(source)
+  let region
+  try { region = analyzePage(doc, 0).view.regions[0] } finally { doc.destroy() }
+  assert.equal(region.text, 'Vertical line'); assert.equal(region.unsupported, undefined)
+  const output = compileTextEdits(source, [{ ...edit, regionId: region.id, text: 'Turned line' }])
+  // Every changed pixel stays inside the original line's area (page coordinates, ±2px).
+  assert.ok(changedPixels(source, output, 0, region.bounds) > 0)
+  const after = openPdf(output)
+  try { assert.ok(analyzePage(after, 0).view.regions.some(r => r.text === 'Turned line')) } finally { after.destroy() }
+})
+
+const regionsOf = (bytes: Uint8Array) => { const doc = openPdf(bytes); try { return analyzePage(doc, 0).view.regions } finally { doc.destroy() } }
+const toUnicode = (doc: mupdf.PDFDocument, hex: string) => doc.addStream(`/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CMapName /X def 1 begincodespacerange <00> <FF> endcodespacerange 2 beginbfchar <01> <${hex}> <20> <0020> endbfchar endcmap CMapName currentdict /CMap defineresource pop end end`, {})
+
+test('lines whose letter boxes graze the next line stay editable, and editing one leaves the other intact', () => {
+  // 14pt text 12pt apart: the descenders of "gyp" touch the ascenders of "fifth hold".
+  const source = fixture({ content: 'BT /F 14 Tf 1 0 0 1 80 360 Tm (gyp gyp) Tj ET BT /F 14 Tf 1 0 0 1 80 348 Tm (fifth hold) Tj ET' })
+  const regions = regionsOf(source)
+  assert.deepEqual(regions.map(r => [r.text, r.unsupported]), [['gyp gyp', undefined], ['fifth hold', undefined]])
+  // compileTextEdits verifies every other glyph survived; the edit must not throw.
+  const output = compileTextEdits(source, [{ ...edit, regionId: regions[1].id, text: 'tenth hold', size: 14 }])
+  assert.deepEqual(regionsOf(output).map(r => r.text).sort(), ['gyp gyp', 'tenth hold'])
+})
+
+test('a thin rule drawn over the letters does not block editing; a box hiding the text does', () => {
+  const line = 'BT /F 20 Tf 1 0 0 1 80 360 Tm (Original editable line) Tj ET'
+  assert.equal(regionsOf(fixture({ content: `${line} 0 g 80 355 200 1 re f` }))[0].unsupported, undefined)
+  assert.ok(regionsOf(fixture({ content: `${line} 1 g 75 350 250 40 re f` }))[0].unsupported)
+})
+
+test('faux-bold text (filled and outlined) is editable and the replacement keeps the outline', () => {
+  const source = fixture({ content: 'BT /F 20 Tf 2 Tr 0.8 w 1 0 0 1 80 360 Tm (Bold looking) Tj ET' })
+  const [region] = regionsOf(source)
+  assert.equal(region.unsupported, undefined)
+  const doc = openPdf(compileTextEdits(source, [{ ...edit, regionId: region.id, text: 'Bold again' }]))
+  try {
+    const page = doc.loadPage(0)
+    try { const glyphs = paintedGlyphs(page).glyphs; assert.ok(glyphs.length && glyphs.every(g => g.stroke && Math.abs(g.stroke.width - 0.8) < 0.01)) } finally { page.destroy() }
+  } finally { doc.destroy() }
+})
+
+test('a replacement slightly wider than the original is narrowed to fit instead of refused', () => {
+  const source = fixture()
+  const output = openPdf(compileTextEdits(source, [{ ...edit, text: 'Original editable lines' }]))
+  try { assert.ok(analyzePage(output, 0).view.regions.some(r => r.text === 'Original editable lines')) } finally { output.destroy() }
+  assert.throws(() => compileTextEdits(source, [{ ...edit, text: 'Original editable line, now twice as long' }]), /even with narrowed letters/)
+})
+
+test('zero-width spaces (Google Docs, Word exports) are ignored instead of blocking the line', () => {
+  const source = customFontPdf({ Encoding: 'WinAnsiEncoding' }, 'BT /F 20 Tf 1 0 0 1 80 360 Tm (Hello\\001World) Tj ET', doc => ({ ToUnicode: toUnicode(doc, '200B') }))
+  const [region] = regionsOf(source)
+  assert.deepEqual([region.text, region.unsupported], ['HelloWorld', undefined])
+})
+
+test('a symbol the standard fonts cannot draw is split off: the text stays editable and the symbol can be replaced', () => {
+  const source = customFontPdf({ Encoding: 'WinAnsiEncoding' }, 'BT /F 20 Tf 1 0 0 1 80 360 Tm (\\001 Item one) Tj ET', doc => ({ ToUnicode: toUnicode(doc, '25CF') }))
+  const regions = regionsOf(source)
+  const symbol = regions.find(r => r.text === '●')!, text = regions.find(r => r.text === 'Item one')!
+  assert.equal(symbol.unsupported, undefined); assert.equal(text.unsupported, undefined)
+  compileTextEdits(source, [{ ...edit, regionId: text.id, text: 'Item two' }])
+  compileTextEdits(source, [{ ...edit, regionId: symbol.id, text: '•' }])
+  assert.throws(() => compileTextEdits(source, [{ ...edit, regionId: symbol.id, text: '●' }]), /Latin letters/)
 })

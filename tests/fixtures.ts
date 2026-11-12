@@ -20,7 +20,7 @@ ${options.extra ?? ''}`
     if (options.annotation) {
       const page = doc.loadPage(0)
       if (options.annotation === 'Link') {
-        const link = page.createLink([80, 120, 280, 150], 'https://example.invalid')
+        const link = page.createLink([80, 120, 280, 210], 'https://example.invalid') // spans two lines: editing keeps it in place
         link.destroy()
       } else {
         const annotation = page.createAnnotation('Redact'); annotation.setRect([10, 10, 20, 20]); annotation.destroy()
