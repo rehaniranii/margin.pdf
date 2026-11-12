@@ -187,3 +187,5 @@ textarea::placeholder,input::placeholder{color:var(--faint);opacity:1}
 /* Rich text fields (bold/italic for selected words), styled like the text boxes they replace. */
 .text-form .rich-text{display:block;width:100%;min-height:46px;max-height:240px;overflow:auto;border:1px solid var(--line-strong);border-radius:5px;padding:10px;font-size:14px;line-height:1.5;background:var(--surface);color:var(--ink);white-space:pre-wrap;overflow-wrap:anywhere;cursor:text}.text-form .rich-text.paragraph{min-height:110px}.text-form .rich-text:focus-visible{outline:3px solid var(--focus);outline-offset:3px}.rich-text[aria-disabled=true]{opacity:.6}
 .scan-note{font-size:11.5px;line-height:1.55;color:var(--muted);background:var(--surface-3);border-radius:5px;padding:8px 10px;margin:8px 0 0}
+/* Free space beside a line: click to open the editor there. A dashed outline on hover shows the room. */
+.free-space-hit{position:absolute;cursor:text;border-radius:2px}.free-space-hit:hover{outline:1px dashed #2859cf80;background:#2859cf08}

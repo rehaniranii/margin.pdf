@@ -341,6 +341,7 @@ export function analyzePage(doc: mupdf.PDFDocument, index: number): Analysis {
       }
       region.free = freeSpace(region, paint.glyphs, paint.obstacles, links.filter(link => link.bounds !== region.linkBounds).map(link => link.bounds), bounds, blank)
       region.space = region.free.area
+      if (region.free.rightAligned) region.align = 'right'
     }
     return { view: { page: index, bounds, regions: paragraphs.map(({ glyphIndices: _, removal: _r, linkBounds: _l, free: _f, cover: _c, paper: _p, ...region }) => region), message: !paragraphs.length ? 'No editable text was found. This may be a scanned page; OCR is outside this release.' : pageReason }, regions: paragraphs, glyphs: paint.glyphs, pdfToPage, graphics: paint.obstacles }
   } finally { page.destroy() }

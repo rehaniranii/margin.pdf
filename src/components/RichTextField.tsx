@@ -6,7 +6,8 @@ import { charStyles, fromStyles, toggleRange } from '../model/fonts'
 export type StyledValue = { text: string; font: ReplacementFont; spans?: TextSpan[] }
 export type RichTextHandle = { toggle: (style: 'bold' | 'italic') => void; selection: () => [number, number] }
 type Props = StyledValue & {
-  label: string; id?: string; className?: string; style?: CSSProperties; multiline?: boolean; disabled?: boolean; autoSelect?: boolean; describedBy?: string
+  label: string; id?: string; className?: string; style?: CSSProperties; multiline?: boolean; disabled?: boolean; /** Focus on mount and select everything, or put the cursor at the end ('end'). */
+  autoSelect?: boolean | 'end'; describedBy?: string
   onChange: (value: StyledValue) => void
   onSelection?: (range: [number, number]) => void
   /** Called after the field's own keys (Cmd/Ctrl+B, I, line breaks): Enter to apply, Escape to cancel. */
@@ -100,7 +101,7 @@ export const RichTextField = forwardRef<RichTextHandle, Props>(function RichText
   })
   useLayoutEffect(() => {
     if (!autoSelect || !root.current) return
-    root.current.focus(); select([0, text.length])
+    root.current.focus(); select([autoSelect === 'end' ? text.length : 0, text.length])
   }, [])
 
   return <div ref={root} id={id} className={`rich-text ${className ?? ''}`} style={style} role="textbox" aria-label={label} aria-multiline={multiline || undefined} aria-describedby={describedBy}

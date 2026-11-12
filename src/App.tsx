@@ -119,6 +119,7 @@ export default function App() {
   function needThumb(page: number) { if (!document || thumbQueue.current.includes(page)) return; thumbQueue.current.push(page); void pumpThumbs() }
   const [draftText,setDraftText] = useState<TextEdit>()
   const [inlineSource,setInlineSource] = useState(false)
+  const [inlineCaret,setInlineCaret] = useState<'end'>()
   const [inlineAdded,setInlineAdded] = useState<AddedText>()
   const selectedObject = view?.objects.find(object => object.id === objectSelection && object.page === page)
   const selected = view?.text.regions.find(region => region.id === selection)
@@ -240,8 +241,9 @@ export default function App() {
     setSelection(region.id); setError(''); if(selection!==region.id)setInlineSource(false)
   }
 
-  function beginInline(region?:TextRegion) {
+  function beginInline(region?:TextRegion,caret?:'end') {
     if(!region||busy)return
+    setInlineCaret(caret)
     if(dirty&&selection!==region.id){setError('Apply or cancel your current draft first.');return}
     selectRegion(region)
     if(region.unsupported){setError(region.unsupported);return}
@@ -459,7 +461,8 @@ export default function App() {
     return()=>{window.removeEventListener('copy',copy);window.removeEventListener('paste',paste)}
   },[utilitiesOpen,view,busy,dirty,page,zoom,selection,objectSelection,tool])
   let inlineDraft:InlineDraft|undefined
-  if(inlineSource&&selected&&draftText)inlineDraft={...draftText,bounds:selected.bounds,direction:selected.direction,multiline:false,wrap:(selected.lines??1)>1}
+  // The editor covers the line's free space too, so the room to grow is visible while typing.
+  if(inlineSource&&selected&&draftText)inlineDraft={...draftText,bounds:selected.space??selected.bounds,direction:selected.direction,multiline:false,wrap:(selected.lines??1)>1,caret:inlineCaret,align:selected.align}
   else if(inlineAdded)inlineDraft={...inlineAdded,bounds:[inlineAdded.box.x,inlineAdded.box.y,inlineAdded.box.x+inlineAdded.box.width,inlineAdded.box.y+inlineAdded.box.height],multiline:true}
   function updateInline(value:StyledValue){if(inlineSource&&draftText)changeText({...draftText,...value});else if(inlineAdded){const next={...inlineAdded,...value};setInlineAdded(next);setDirty(selectedObject?.kind!=='text'||JSON.stringify([next.text,next.font,next.spans])!==JSON.stringify([selectedObject.text,selectedObject.font,selectedObject.spans]))}}
   function applyInline(){if(inlineSource&&draftText)void applyEdit(draftText);else if(inlineAdded)void putObject(inlineAdded)}

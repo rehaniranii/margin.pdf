@@ -19,7 +19,7 @@ export type TextEdit = { type: 'replace-text'; page: number; regionId: string; t
 // `lines`/`lineGap` describe a paragraph of same-style lines; absent means a single line.
 // `link` is the web address of a link that covers exactly this text. `space` is the area an edit may grow into.
 // `scan`: the line is OCR text over a scanned image; an edit covers the old words with the paper colour and draws the new text.
-export type TextRegion = { id: string; text: string; bounds: Rect; origin: Point; direction: Point; fontName: string; fontSize: number; color: string; unsupported?: string; lines?: number; lineGap?: number; link?: string; space?: Rect; scan?: boolean }
+export type TextRegion = { id: string; text: string; bounds: Rect; origin: Point; direction: Point; fontName: string; fontSize: number; color: string; unsupported?: string; lines?: number; lineGap?: number; link?: string; space?: Rect; scan?: boolean; align?: 'right' }
 export type PageText = { page: number; bounds: Rect; regions: TextRegion[]; message?: string }
 export type ObjectBox = { x: number; y: number; width: number; height: number }
 type ObjectBase = { id: string; page: number; box: ObjectBox }
